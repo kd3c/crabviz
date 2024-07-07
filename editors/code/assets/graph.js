@@ -22,23 +22,18 @@ const GraphElemType = Object.freeze({
 class CallGraph {
   /**
    * The SVG element
+   *
    * @type {SVGSVGElement}
    */
   svg;
 
-  /**
-   * @type {NodeListOf<SVGGElement>}
-   */
+  /** @type {NodeListOf<SVGGElement>} */
   edges;
 
-  /**
-   * @type {NodeListOf<SVGGElement>}
-   */
+  /** @type {NodeListOf<SVGGElement>} */
   nodes;
 
-  /**
-   * @type {boolean}
-   */
+  /** @type {boolean} */
   focusMode;
 
   /**
@@ -71,26 +66,21 @@ class CallGraph {
     this.svg = svg;
     this.edges = svg.querySelectorAll("g.edge");
     this.nodes = svg.querySelectorAll("g.node");
+
     this.focusMode = focusMode;
+    this.incomings = new Map();
+    this.outgoings = new Map();
   }
 
   activate() {
     this.processSVG();
-    this.addGraphicalObjects();
     this.addListeners();
   }
 
   processSVG() {
-    this.edges.forEach(edge => forEachSelectedChild(edge, "path", (path) => {
-      let newPath = path.cloneNode();
-      newPath.classList.add("hover-path");
-      newPath.removeAttribute("stroke-dasharray");
-      path.parentNode.appendChild(newPath);
-    }));
-
     forEachSelectedChild(this.svg, "a", (a) => {
       let urlComps = a.href.baseVal.split(".");
-      if (urlComps[0] !== "remove_me_url") {
+      if (urlComps[0] !== "__classes__") {
         return;
       }
 
@@ -106,19 +96,13 @@ class CallGraph {
       }
     });
 
-    if (this.focusMode) {
-      this.focus = this.svg.querySelector(".highlight").id;
-      this.incomings = new Map();
-      this.outgoings = new Map();
-    }
 
-    this.edges.forEach((edge) => {
-      let [from, to] = edge.id.split(" -> ");
-
+    this.edges.forEach(edge => {
+      const [from, to] = edge.id.split(" -> ");
       edge.setAttribute("edge-from", from);
       edge.setAttribute("edge-to", to);
 
-      if (this.focus) {
+      if (this.focusMode) {
         if (this.incomings.has(to)) {
           this.incomings.get(to).push(edge);
         } else {
@@ -131,15 +115,26 @@ class CallGraph {
           this.outgoings.set(from, [edge]);
         }
       }
+
+      forEachSelectedChild(edge, "path", (path) => {
+        let newPath = path.cloneNode();
+        newPath.classList.add("hover-path");
+        newPath.removeAttribute("stroke-dasharray");
+        path.parentNode.appendChild(newPath);
+      });
     });
 
-    forEachSelectedChild(this.svg, "title", (el) => el.remove());
-  }
 
-  addGraphicalObjects() {
+    if (this.focusMode) {
+      this.focus = this.svg.querySelector(".highlight").id;
+    }
+
+
+    forEachSelectedChild(this.svg, "title", (el) => el.remove());
+
+
     let defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
     defs.innerHTML = '<filter id="shadow"><feDropShadow dx="0" dy="0" stdDeviation="4" flood-opacity="0.5"></filter>';
-
     this.svg.appendChild(defs);
   }
 

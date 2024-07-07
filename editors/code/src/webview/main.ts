@@ -30,13 +30,12 @@ function exportSVG(uri: any) {
   const viewport = svg.querySelector(':scope > g')!;
   const graph = viewport.querySelector(':scope > g')!;
 
-  svg.appendChild(graph);
-  svg.removeChild(viewport);
+  svg.replaceChild(graph, viewport);
 
   svg.appendChild(document.getElementById('crabviz_style')!.cloneNode(true));
   svg.insertAdjacentHTML(
     "beforeend",
-    "<style>:is(.cell, .edge) { pointer-events: none; }</style>"
+    "<style>* { pointer-events: none; }</style>"
   );
 
   vscode.postMessage({

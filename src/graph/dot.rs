@@ -32,7 +32,7 @@ impl Dot {
                     r#"
     "{id}" [id="{id}", label=<
         <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="8" CELLPADDING="4">
-        <TR><TD WIDTH="230" BORDER="0" CELLPADDING="6" HREF="remove_me_url.title">{title}</TD></TR>
+        <TR><TD WIDTH="230" BORDER="0" CELLPADDING="6" HREF="__classes__.title">{title}</TD></TR>
         {sections}
         <TR><TD CELLSPACING="0" HEIGHT="1" WIDTH="1" FIXEDSIZE="TRUE" STYLE="invis"></TD></TR>
         </TABLE>
@@ -204,7 +204,7 @@ digraph {{
             "".to_string()
         } else {
             format!(
-                r#"href="remove_me_url.{}""#,
+                r#"href="__classes__.{}""#,
                 classes
                     .iter()
                     .map(|c| c.to_str())
