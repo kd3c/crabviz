@@ -11,6 +11,9 @@ export class CallGraphPanel {
 	private readonly _extensionUri: vscode.Uri;
 	private _disposables: vscode.Disposable[] = [];
 
+	private svg: string | undefined;
+	private focusMode = false;
+
 	public constructor(extensionUri: vscode.Uri) {
 		this._extensionUri = extensionUri;
 
@@ -73,47 +76,57 @@ export class CallGraphPanel {
 		}
 	}
 
-	public showCallGraph(svg: string, focusMode: boolean) {
-		const resourceUri = vscode.Uri.joinPath(this._extensionUri, 'assets');
-		const webviewUri = this._panel.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'webview.js'));
-
-		const filePromises = ['variables.css', 'styles.css', 'toolbar.css', 'graph.js', 'svg-pan-zoom.min.js'].map(fileName =>
-			vscode.workspace.fs.readFile(vscode.Uri.joinPath(resourceUri, fileName))
-		);
+	public async showCallGraph(svg: string, focusMode: boolean) {
+		this.svg = svg;
+		this.focusMode = focusMode;
 
 		CallGraphPanel.currentPanel = this;
 
+		this._panel.webview.html = await this.generateHTML(false);
+	}
+
+	async generateHTML(exported: boolean): Promise<string> {
 		const nonce = getNonce();
 
-		Promise.all(filePromises).then(([cssVariables, cssStyles, cssToolbar, ...scripts]) => {
-			this._panel.webview.html = `<!DOCTYPE html>
+		const resourceUri = vscode.Uri.joinPath(this._extensionUri, 'assets');
+
+		const filePromises = ['variables.css', 'styles.css', 'graph.js', 'svg-pan-zoom.min.js'].map(fileName =>
+			vscode.workspace.fs.readFile(vscode.Uri.joinPath(resourceUri, fileName))
+		);
+
+		const unexported = exported ? ["", ""] : [
+			`<link rel="stylesheet" href="${this._panel.webview.asWebviewUri(vscode.Uri.joinPath(resourceUri, 'toolbar.css'))}">
+			<script type="module" nonce="${nonce}" src="${this._panel.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'webview.js'))}"></script>`
+			,
+			`<div id="crabviz_toolbar">
+				<vscode-text-field id="crabviz_toolbar_field" readonly=true></vscode-text-field>
+				<vscode-button>Go To Definition</vscode-button>
+				<vscode-button id="crabviz_save_button">Save</vscode-button>
+			</div>`];
+
+		return Promise.all(filePromises).then(([cssVariables, cssStyles, ...scripts]) =>
+			`<!DOCTYPE html>
 			<html lang="en">
 			<head>
 					<meta charset="UTF-8">
 					<meta http-equiv="Content-Security-Policy" content="script-src 'nonce-${nonce}';">
-					<meta name="viewport" content="width=device-width, initial-scale=1.0">
 					<title>crabviz</title>
 					<style id="crabviz_style">
 						${cssVariables.toString()}
 						${cssStyles.toString()}
-						${cssToolbar.toString()}
 					</style>
 					${scripts.map((s) => `<script nonce="${nonce}">${s.toString()}</script>`).join('\n')}
-					<script type="module" nonce="${nonce}" src="${webviewUri}"></script>
+					${unexported[0]}
 			</head>
 			<body data-vscode-context='{ "preventDefaultContextMenuItems": true }'>
-					<div id="crabviz_toolbar">
-						<vscode-text-field id="crabviz_toolbar_field" readonly=true></vscode-text-field>
-						<vscode-button>Go To Definition</vscode-button>
-						<vscode-button id="crabviz_save_button">Save</vscode-button>
-					</div>
+					${unexported[1]}
 
 					<div id="crabviz_svg">
-					${svg}
+					${this.svg!}
 					</div>
 
 					<script nonce="${nonce}">
-						const graph = new CallGraph(document.querySelector("#crabviz_svg svg"), ${focusMode});
+						const graph = new CallGraph(document.querySelector("#crabviz_svg svg"), ${this.focusMode});
 						graph.activate();
 
 						svgPanZoom(graph.svg, {
@@ -121,22 +134,23 @@ export class CallGraphPanel {
 						});
 					</script>
 			</body>
-			</html>`;
-		});
+			</html>`
+		);
 	}
 
-	public save() {
+	save() {
 		vscode.window.showSaveDialog({
 			saveLabel: "Save",
 			filters: {
 				'HTML': ['html'],
 				'SVG': ['svg'],
 			}
-		}).then((uri) => {
+		}).then(async (uri) => {
 			if (uri) {
 				switch (extname(uri.path)) {
 					case '.html': {
-						this.writeFile(uri, this._panel.webview.html);
+						const html = await this.generateHTML(true);
+						this.writeFile(uri, html);
 						break;
 					}
 					case '.svg': {
