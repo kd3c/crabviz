@@ -115,6 +115,11 @@ export class CallGraphPanel {
 						${cssVariables.toString()}
 						${cssStyles.toString()}
 					</style>
+					<style id="edges-fading">
+						g.edge:not(.selected, .incoming, .outgoing) {
+							opacity: 0.05;
+						}
+					</style>
 					${scripts.map((s) => `<script nonce="${nonce}">${s.toString()}</script>`).join('\n')}
 					${unexported[0]}
 			</head>

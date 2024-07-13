@@ -143,15 +143,15 @@ digraph {{
         E: Iterator<Item = Edge>,
     {
         edges
-            .map(|edge| {
-                let from = format!(r#"{}:"{}_{}""#, edge.from.0, edge.from.1, edge.from.2);
-                let to = format!(r#"{}:"{}_{}""#, edge.to.0, edge.to.1, edge.to.2);
+            .map(|e| {
+                let from = format!(r#"{}:"{}_{}""#, e.from.0, e.from.1, e.from.2);
+                let to = format!(r#"{}:"{}_{}""#, e.to.0, e.to.1, e.to.2);
 
                 let attrs = iter::once(format!(
-                    r#"id="{}:{}_{} -> {}:{}_{}""#,
-                    edge.from.0, edge.from.1, edge.from.2, edge.to.0, edge.to.1, edge.to.2,
+                    r#"id="{}-{}:{}_{}-{}-{}:{}_{}""#,
+                    e.from.0, e.from.0, e.from.1, e.from.2, e.to.0, e.to.0, e.to.1, e.to.2,
                 ))
-                .chain(iter::once(Dot::css_classes(edge.classes)))
+                .chain(iter::once(Dot::css_classes(e.classes)))
                 .filter(|s| !s.is_empty())
                 .collect::<Vec<_>>();
 

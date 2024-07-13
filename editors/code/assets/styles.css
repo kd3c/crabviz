@@ -143,11 +143,6 @@ body {
   font-weight: 500;
 }
 
-/* selection fade */
-.fade {
-  opacity: 0.05;
-}
-
 /* symbols */
 
 .module > :is(path, polygon):first-of-type {

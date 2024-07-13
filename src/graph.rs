@@ -20,6 +20,7 @@ pub trait GenerateSVG {
 
 #[derive(Debug, Clone)]
 pub struct Edge {
+    // (file_id, line, character)
     pub from: (u32, u32, u32),
     pub to: (u32, u32, u32),
     pub classes: EnumSet<CssClass>,

@@ -21,41 +21,52 @@ const GraphElemType = Object.freeze({
 
 class CallGraph {
   /**
-   * The SVG element
+   * the SVG element
    *
    * @type {SVGSVGElement}
    */
   svg;
 
-  /** @type {NodeListOf<SVGGElement>} */
-  edges;
-
-  /** @type {NodeListOf<SVGGElement>} */
-  nodes;
+  /**
+   * toggle fading edges
+   *
+   * @type {HTMLStyleElement}
+   */
+  edgesFadingStyle;
 
   /** @type {boolean} */
   focusMode;
 
   /**
-   * Focus element
+   * focus element id
    *
-   * @type {SVGGElement}
+   * @type {?string}
    */
   focus;
 
   /**
-   * Incoming edges in focus mode
+   * edges group by start cells' id
    *
-   * @type {NodeListOf<SVGGElement>}
+   * @type {Map<string, SVGGElement[]>}
    */
   incomings;
 
   /**
-   * Outgoing edges in focus mode
+   * edges group by end cells' id
    *
-   * @type {NodeListOf<SVGGElement>}
+   * @type {Map<string, SVGGElement[]>}
    */
   outgoings;
+
+  /**
+   * cells' id group by nodes' id
+   *
+   * @type {Map<string, Set<string>>}
+   */
+  nodeCells;
+
+  /** @type {Set<SVGGElement>[]} */
+  selectedElems;
 
   /**
    * @constructor
@@ -64,12 +75,14 @@ class CallGraph {
    */
   constructor(svg, focusMode) {
     this.svg = svg;
-    this.edges = svg.querySelectorAll("g.edge");
-    this.nodes = svg.querySelectorAll("g.node");
+    this.edgesFadingStyle = document.getElementById("edges-fading");
+    this.edgesFadingStyle.disabled = true;
 
     this.focusMode = focusMode;
     this.incomings = new Map();
     this.outgoings = new Map();
+    this.nodeCells = new Map();
+    this.selectedElems = Object.seal(new Array(new Set(), new Set(), new Set()));
   }
 
   activate() {
@@ -97,23 +110,34 @@ class CallGraph {
     });
 
 
-    this.edges.forEach(edge => {
-      const [from, to] = edge.id.split(" -> ");
-      edge.setAttribute("edge-from", from);
-      edge.setAttribute("edge-to", to);
+    this.svg.querySelectorAll("g.edge").forEach(edge => {
+      const [fromNode, fromCell, toNode, toCell] = edge.id.split("-");
 
-      if (this.focusMode) {
-        if (this.incomings.has(to)) {
-          this.incomings.get(to).push(edge);
-        } else {
-          this.incomings.set(to, [edge]);
-        }
+      edge.setAttribute("edge-from", fromCell);
+      edge.setAttribute("edge-to", toCell);
 
-        if (this.outgoings.has(from)) {
-          this.outgoings.get(from).push(edge);
-        } else {
-          this.outgoings.set(from, [edge]);
-        }
+      if (this.incomings.has(toCell)) {
+        this.incomings.get(toCell).push(edge);
+      } else {
+        this.incomings.set(toCell, [edge]);
+      }
+
+      if (this.outgoings.has(fromCell)) {
+        this.outgoings.get(fromCell).push(edge);
+      } else {
+        this.outgoings.set(fromCell, [edge]);
+      }
+
+      if (this.nodeCells.has(fromNode)) {
+        this.nodeCells.get(fromNode).add(fromCell);
+      } else {
+        this.nodeCells.set(fromNode, new Set([fromCell]));
+      }
+
+      if (this.nodeCells.has(toNode)) {
+        this.nodeCells.get(toNode).add(toCell);
+      } else {
+        this.nodeCells.set(toNode, new Set([toCell]));
       }
 
       forEachSelectedChild(edge, "path", (path) => {
@@ -160,7 +184,7 @@ class CallGraph {
       this.reset();
 
       const target = event.target;
-      const elemTuple = this.findNearestGraphElem(target);
+      const elemTuple = this.findClosestGraphElem(target);
 
       if (elemTuple === null) {
         return;
@@ -186,24 +210,20 @@ class CallGraph {
    * Deselect all elements
    */
   reset() {
-    this.nodes.forEach(node => {
-      node.classList.remove("selected");
-      forEachSelectedChild(node, "g.cell.selected", (elem) => {
-        elem.classList.remove("selected");
-      });
+    this.selectedElems.forEach(s => {
+      s.forEach(g => g.classList.remove("selected", "incoming", "outgoing"));
+      s.clear();
     });
-    this.edges.forEach(edge => edge.classList.remove("fade", "incoming", "outgoing", "selected"));
+
+    this.edgesFadingStyle.disabled = true;
   };
 
   /**
    * @param {SVGGElement} edge
    */
   onSelectEdge(edge) {
-    this.edges.forEach(e => {
-      if (e !== edge) {
-        e.classList.add("fade");
-      }
-    });
+    this.highlightEdge(edge, "selected");
+    this.edgesFadingStyle.disabled = false;
   };
 
   /**
@@ -214,77 +234,79 @@ class CallGraph {
       return;
     }
 
-    const id = cell.id;
+    cell.classList.add("selected");
+    this.selectedElems[GraphElemType.CELL].add(cell);
 
     if (this.focus) {
-      this.highlightEdgeInFocusMode(id);
+      this.highlightEdgeInFocusMode(cell.id);
     } else {
-      this.edges.forEach(edge => {
-        let fade = true;
+      (this.incomings.get(cell.id) ?? []).forEach(edge => {
+        this.highlightEdge(edge, "incoming");
+      });
 
-        if (edge.matches(`[edge-from="${id}"]`)) {
-          edge.classList.add("outgoing");
-          fade = false;
-        }
-        if (edge.matches(`[edge-to="${id}"]`)) {
-          edge.classList.add("incoming");
-          fade = false;
-        }
-
-        if (fade) {
-          edge.classList.add("fade");
-        }
+      (this.outgoings.get(cell.id) ?? []).forEach(edge => {
+        this.highlightEdge(edge, "outgoing");
       });
     }
 
-    cell.classList.add("selected");
+    this.edgesFadingStyle.disabled = false;
   };
 
   /**
    * @param {SVGGElement} node
    */
   onSelectNode(node) {
-    const id = node.id;
+    this.selectedElems[GraphElemType.NODE].add(node);
 
-    this.edges.forEach(edge => {
-      let fade = true;
+    const cells = this.nodeCells.get(node.id);
+    if (cells) {
+      const cids = Array.from(cells);
 
-      if (edge.matches(`[edge-from^="${id}:"]`)) {
-        edge.classList.add("outgoing");
-        fade = false;
-      }
-      if (edge.matches(`[edge-to^="${id}:"]`)) {
-        edge.classList.add("incoming");
-        fade = false;
-      }
+      cids
+        .flatMap(cid => this.incomings.get(cid) ?? [])
+        .forEach(edge => {
+          this.highlightEdge(edge, "incoming");
+        });
 
-      if (fade) {
-        edge.classList.add("fade");
-      }
-    });
+      cids
+        .flatMap(cid => this.outgoings.get(cid) ?? [])
+        .forEach(edge => {
+          this.highlightEdge(edge, "outgoing");
+        });
+    }
+
+    this.edgesFadingStyle.disabled = false;
 
     node.classList.add("selected");
+  }
+
+  /**
+   * @param {SVGGElement} edge
+   * @param {string} cls
+   */
+  highlightEdge(edge, cls) {
+    edge.classList.add(cls);
+    this.selectedElems[GraphElemType.EDGE].add(edge);
   }
 
   /**
    * @param {SVGGElement} elem
    * @returns {SVGGElement}
    */
-  findNearestGraphElem(elem) {
-    while (elem && elem !== this.svg) {
-      for (let i = 0; i < elem.classList.length; ++i) {
-        let cls = elem.classList.item(i);
+  findClosestGraphElem(elem) {
+    const closetElem = elem.closest("g:is(.node, .cell, .edge)");
+    if (!closetElem) {
+      return null;
+    }
 
-        if (cls === "node") {
-          return [elem, GraphElemType.NODE];
-        } else if (cls === "cell") {
-          return [elem, GraphElemType.CELL];
-        } else if (cls === "edge") {
-          return [elem, GraphElemType.EDGE];
-        }
+    for (const cls of closetElem.classList) {
+      if (cls === "node") {
+        return [closetElem, GraphElemType.NODE];
+      } else if (cls === "cell") {
+        return [closetElem, GraphElemType.CELL];
+      } else if (cls === "edge") {
+        return [closetElem, GraphElemType.EDGE];
       }
-
-      elem = elem.parentNode;
     }
 
     return null;
@@ -300,10 +322,8 @@ class CallGraph {
    * @param {string} cellId
    */
   highlightEdgeInFocusMode(cellId) {
-    let incomings = new Set();
-    let outgoings = new Set();
-    let visited1 = new Set([cellId, this.focus]);
-    let visited2 = new Set([cellId, this.focus]);
+    let iVisited = new Set([cellId, this.focus]);
+    let oVisited = new Set([cellId, this.focus]);
 
     let newIncomings = this.incomings.get(cellId) ?? [];
     let newOutgoings = this.outgoings.get(cellId) ?? [];
@@ -311,47 +331,30 @@ class CallGraph {
     while (newIncomings.length > 0) {
       newIncomings = newIncomings
         .flatMap(e => {
-          incomings.add(e);
+          this.highlightEdge(e, "incoming");
 
           let id = e.getAttribute("edge-from");
-          if (visited1.has(id)) {
+          if (iVisited.has(id)) {
             return [];
           }
+          iVisited.add(id);
 
-          visited1.add(id);
           return this.incomings.get(id) ?? [];
         });
     }
     while (newOutgoings.length > 0) {
       newOutgoings = newOutgoings
         .flatMap(e => {
-          outgoings.add(e);
+          this.highlightEdge(e, "outgoing");
 
           let id = e.getAttribute("edge-to");
-          if (visited2.has(id)) {
+          if (oVisited.has(id)) {
             return [];
           }
+          oVisited.add(id);
 
-          visited2.add(id);
           return this.outgoings.get(id) ?? [];
         });
     }
-
-    this.edges.forEach(edge => {
-      let fade = true;
-
-      if (incomings.has(edge)) {
-        edge.classList.add("incoming");
-        fade = false;
-      }
-      if (outgoings.has(edge)) {
-        edge.classList.add("outgoing");
-        fade = false;
-      }
-
-      if (fade) {
-        edge.classList.add("fade");
-      }
-    });
   }
 }
