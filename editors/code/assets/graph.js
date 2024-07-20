@@ -113,8 +113,8 @@ class CallGraph {
     this.svg.querySelectorAll("g.edge").forEach(edge => {
       const [fromNode, fromCell, toNode, toCell] = edge.id.split("-");
 
-      edge.setAttribute("edge-from", fromCell);
-      edge.setAttribute("edge-to", toCell);
+      edge.setAttribute("data-from", fromCell);
+      edge.setAttribute("data-to", toCell);
 
       if (this.incomings.has(toCell)) {
         this.incomings.get(toCell).push(edge);
@@ -333,7 +333,7 @@ class CallGraph {
         .flatMap(e => {
           this.highlightEdge(e, "incoming");
 
-          let id = e.getAttribute("edge-from");
+          let id = e.dataset.from;
           if (iVisited.has(id)) {
             return [];
           }
@@ -347,7 +347,7 @@ class CallGraph {
         .flatMap(e => {
           this.highlightEdge(e, "outgoing");
 
-          let id = e.getAttribute("edge-to");
+          let id = e.dataset.to;
           if (oVisited.has(id)) {
             return [];
           }

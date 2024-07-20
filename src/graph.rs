@@ -63,12 +63,12 @@ impl Cell {
 pub struct TableNode {
     pub id: u32,
     pub title: String,
-    pub sections: Vec<Cell>,
+    pub cells: Vec<Cell>,
 }
 
 impl TableNode {
     pub fn highlight_cells(&mut self, cells: &HashSet<(u32, u32)>) {
-        self.sections.iter_mut().for_each(|c| c.highlight(cells));
+        self.cells.iter_mut().for_each(|c| c.highlight(cells));
     }
 }
 

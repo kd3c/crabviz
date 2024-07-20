@@ -157,7 +157,7 @@ impl GraphGenerator {
         let mut cell_ids = HashSet::new();
         tables
             .iter()
-            .flat_map(|(_, tbl)| tbl.sections.iter().map(|cell| (tbl.id, cell)))
+            .flat_map(|(_, tbl)| tbl.cells.iter().map(|cell| (tbl.id, cell)))
             .for_each(|(tid, cell)| self.collect_cell_ids(tid, cell, &mut cell_ids));
         let cell_ids_ref = &cell_ids;
 

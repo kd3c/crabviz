@@ -16,7 +16,7 @@ pub(crate) trait Language {
     }
 
     fn file_repr(&self, file: &FileOutline) -> TableNode {
-        let sections = file
+        let cells = file
             .symbols
             .iter()
             .filter(|symbol| self.filter_symbol(symbol))
@@ -26,7 +26,7 @@ pub(crate) trait Language {
         TableNode {
             id: file.id,
             title: file.path.file_name().unwrap().to_str().unwrap().to_string(),
-            sections,
+            cells,
         }
     }
 

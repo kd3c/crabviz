@@ -33,15 +33,15 @@ impl Dot {
     "{id}" [id="{id}", label=<
         <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="8" CELLPADDING="4">
         <TR><TD WIDTH="230" BORDER="0" CELLPADDING="6" HREF="__classes__.title">{title}</TD></TR>
-        {sections}
+        {cells}
         <TR><TD CELLSPACING="0" HEIGHT="1" WIDTH="1" FIXEDSIZE="TRUE" STYLE="invis"></TD></TR>
         </TABLE>
     >];
                     "#,
                     id = table.id,
                     title = table.title,
-                    sections = table
-                        .sections
+                    cells = table
+                        .cells
                         .iter()
                         .map(|node| Dot::process_cell(table.id, node))
                         .collect::<Vec<_>>()
