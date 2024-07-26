@@ -1,8 +1,8 @@
 use {
     enumset::{EnumSet, EnumSetType},
     std::{
-        collections::HashSet,
         hash::{Hash, Hasher},
+        path::PathBuf,
     },
 };
 
@@ -23,7 +23,7 @@ pub struct Edge {
     // (file_id, line, character)
     pub from: (u32, u32, u32),
     pub to: (u32, u32, u32),
-    pub classes: EnumSet<CssClass>,
+    pub classes: EnumSet<EdgeCssClass>,
 }
 
 impl Hash for Edge {
@@ -45,31 +45,17 @@ impl Eq for Edge {}
 pub struct Cell {
     pub range_start: (u32, u32),
     pub range_end: (u32, u32),
+    pub kind: u8,
     pub title: String,
     pub style: Style,
     pub children: Vec<Cell>,
 }
 
-impl Cell {
-    pub fn highlight(&mut self, cells: &HashSet<(u32, u32)>) {
-        if cells.contains(&self.range_start) {
-            self.style.classes.insert(CssClass::Highlight);
-        }
-        self.children.iter_mut().for_each(|c| c.highlight(cells));
-    }
-}
-
 #[derive(Debug)]
 pub struct TableNode {
     pub id: u32,
-    pub title: String,
+    pub path: PathBuf,
     pub cells: Vec<Cell>,
-}
-
-impl TableNode {
-    pub fn highlight_cells(&mut self, cells: &HashSet<(u32, u32)>) {
-        self.cells.iter_mut().for_each(|c| c.highlight(cells));
-    }
 }
 
 #[derive(Debug)]
@@ -84,47 +70,17 @@ pub struct Style {
     pub rounded: bool,
     pub border: Option<u8>,
     pub icon: Option<char>,
-    pub classes: EnumSet<CssClass>,
 }
 
 #[derive(EnumSetType, Debug)]
-pub enum CssClass {
-    Module,
-
-    Interface,
-
-    Function,
-    Method,
-    Constructor,
-    Property,
-
-    Type,
-
+pub enum EdgeCssClass {
     Impl,
-
-    Clickable,
-    Highlight,
-    Cell,
 }
 
-impl CssClass {
+impl EdgeCssClass {
     pub fn to_str(&self) -> &'static str {
         match self {
-            CssClass::Module => "module",
-
-            CssClass::Interface => "interface",
-            CssClass::Type => "type",
-
-            CssClass::Function => "function",
-            CssClass::Method => "method",
-            CssClass::Constructor => "constructor",
-            CssClass::Property => "property",
-
-            CssClass::Impl => "impl",
-
-            CssClass::Clickable => "clickable",
-            CssClass::Highlight => "highlight",
-            CssClass::Cell => "cell",
+            EdgeCssClass::Impl => "impl",
         }
     }
 }

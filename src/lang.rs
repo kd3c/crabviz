@@ -5,7 +5,7 @@ use {
     self::{go::Go, rust::Rust},
     crate::{
         generator::FileOutline,
-        graph::{Cell, CssClass, Style, TableNode},
+        graph::{Cell, Style, TableNode},
         lsp_types::{DocumentSymbol, SymbolKind},
     },
 };
@@ -25,7 +25,7 @@ pub(crate) trait Language {
 
         TableNode {
             id: file.id,
-            title: file.path.file_name().unwrap().to_str().unwrap().to_string(),
+            path: file.path.clone(),
             cells,
         }
     }
@@ -43,8 +43,9 @@ pub(crate) trait Language {
         Cell {
             range_start: (range.start.line, range.start.character),
             range_end: (range.end.line, range.end.character),
-            style: self.symbol_style(symbol),
+            kind: symbol.kind as u8 - SymbolKind::File as u8 + 1,
             title: symbol.name.clone(),
+            style: self.symbol_style(symbol),
             children,
         }
     }
@@ -64,63 +65,51 @@ pub(crate) trait Language {
         match symbol.kind {
             SymbolKind::Module => Style {
                 rounded: true,
-                classes: CssClass::Cell | CssClass::Module,
                 ..Default::default()
             },
             SymbolKind::Function => Style {
                 rounded: true,
-                classes: CssClass::Cell | CssClass::Function | CssClass::Clickable,
                 ..Default::default()
             },
             SymbolKind::Method => Style {
                 rounded: true,
-                classes: CssClass::Cell | CssClass::Method | CssClass::Clickable,
                 ..Default::default()
             },
             SymbolKind::Constructor => Style {
                 rounded: true,
-                classes: CssClass::Cell | CssClass::Constructor | CssClass::Clickable,
                 ..Default::default()
             },
             SymbolKind::Interface => Style {
                 border: Some(0),
                 rounded: true,
-                classes: CssClass::Cell | CssClass::Interface | CssClass::Clickable,
                 ..Default::default()
             },
             SymbolKind::Enum => Style {
                 icon: Some('E'),
-                classes: CssClass::Cell | CssClass::Type,
                 ..Default::default()
             },
             SymbolKind::Struct => Style {
                 icon: Some('S'),
-                classes: CssClass::Cell | CssClass::Type,
                 ..Default::default()
             },
             SymbolKind::Class => Style {
                 icon: Some('C'),
-                classes: CssClass::Cell | CssClass::Type,
                 ..Default::default()
             },
             SymbolKind::TypeParameter => Style {
                 icon: Some('T'),
-                classes: CssClass::Cell | CssClass::Type,
                 ..Default::default()
             },
             SymbolKind::Field => Style {
                 icon: Some('f'),
-                classes: CssClass::Cell | CssClass::Property,
                 ..Default::default()
             },
             SymbolKind::Property => Style {
                 icon: Some('p'),
-                classes: CssClass::Cell | CssClass::Property,
                 ..Default::default()
             },
             _ => Style {
                 rounded: true,
-                classes: CssClass::Cell.into(),
                 ..Default::default()
             },
         }

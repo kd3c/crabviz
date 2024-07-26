@@ -1,5 +1,5 @@
 use {
-    super::CssClass,
+    super::EdgeCssClass,
     crate::graph::{Cell, Edge, Subgraph, TableNode},
     enumset::EnumSet,
     std::iter,
@@ -32,14 +32,15 @@ impl Dot {
                     r#"
     "{id}" [id="{id}", label=<
         <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="8" CELLPADDING="4">
-        <TR><TD WIDTH="230" BORDER="0" CELLPADDING="6" HREF="__classes__.title">{title}</TD></TR>
+        <TR><TD WIDTH="230" BORDER="0" CELLPADDING="6" HREF="{path};{id}">{title}</TD></TR>
         {cells}
         <TR><TD CELLSPACING="0" HEIGHT="1" WIDTH="1" FIXEDSIZE="TRUE" STYLE="invis"></TD></TR>
         </TABLE>
     >];
                     "#,
                     id = table.id,
-                    title = table.title,
+                    path = table.path.to_str().unwrap(),
+                    title = table.path.file_name().unwrap().to_str().unwrap(),
                     cells = table
                         .cells
                         .iter()
@@ -103,11 +104,11 @@ digraph {{
             escape_html(&cell.title)
         );
         let port = format!("{}_{}", cell.range_start.0, cell.range_start.1);
+        let href = format!(r#"HREF="{}""#, cell.kind);
 
         if cell.children.is_empty() {
             format!(
                 r#"     <TR><TD PORT="{port}" ID="{table_id}:{port}" {styles} {href}>{title}</TD></TR>"#,
-                href = Dot::css_classes_href(cell.style.classes),
             )
         } else {
             let (cell_styles, table_styles) = (r#"BORDER="0""#.to_string(), styles);
@@ -133,7 +134,6 @@ digraph {{
                     )
                     .collect::<Vec<_>>()
                     .join("\n"),
-                href = Dot::css_classes_href(cell.style.classes),
             )
         }
     }
@@ -144,18 +144,16 @@ digraph {{
     {
         edges
             .map(|e| {
-                let from = format!(r#"{}:"{}_{}""#, e.from.0, e.from.1, e.from.2);
-                let to = format!(r#"{}:"{}_{}""#, e.to.0, e.to.1, e.to.2);
-
-                let attrs = iter::once(format!(
-                    r#"id="{}-{}:{}_{}-{}-{}:{}_{}""#,
-                    e.from.0, e.from.0, e.from.1, e.from.2, e.to.0, e.to.0, e.to.1, e.to.2,
-                ))
-                .chain(iter::once(Dot::css_classes(e.classes)))
-                .filter(|s| !s.is_empty())
-                .collect::<Vec<_>>();
-
-                format!("{} -> {} [{attrs}];", from, to, attrs = attrs.join(", "),)
+                format!(
+                    r#"{f0}:"{f1}_{f2}" -> {t0}:"{t1}_{t2}" [id="{f0}-{f0}:{f1}_{f2}-{t0}-{t0}:{t1}_{t2}", {classes}];"#,
+                    f0 = e.from.0,
+                    f1 = e.from.1,
+                    f2 = e.from.2,
+                    t0 = e.to.0,
+                    t1 = e.to.1,
+                    t2 = e.to.2,
+                    classes = Dot::css_classes(e.classes)
+                )
             })
             .collect::<Vec<_>>()
             .join("\n    ")
@@ -184,7 +182,7 @@ digraph {{
             .join("\n")
     }
 
-    fn css_classes(classes: EnumSet<CssClass>) -> String {
+    fn css_classes(classes: EnumSet<EdgeCssClass>) -> String {
         if classes.is_empty() {
             "".to_string()
         } else {
@@ -195,21 +193,6 @@ digraph {{
                     .map(|c| c.to_str())
                     .collect::<Vec<_>>()
                     .join(" ")
-            )
-        }
-    }
-
-    fn css_classes_href(classes: EnumSet<CssClass>) -> String {
-        if classes.is_empty() {
-            "".to_string()
-        } else {
-            format!(
-                r#"href="__classes__.{}""#,
-                classes
-                    .iter()
-                    .map(|c| c.to_str())
-                    .collect::<Vec<_>>()
-                    .join(".")
             )
         }
     }

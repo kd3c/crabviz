@@ -139,8 +139,8 @@ body {
   stroke-width: 2.25pt;
 }
 
-.title text {
-  font-weight: 500;
+.title {
+  pointer-events: none;
 }
 
 /* symbols */

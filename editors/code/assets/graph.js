@@ -19,6 +19,56 @@ const GraphElemType = Object.freeze({
   EDGE: 2,
 });
 
+/**
+ * @enum { number }
+ */
+// eslint-disable-next-line @typescript-eslint/naming-convention
+const SymbolKind = Object.freeze({
+    FILE: 1,
+    MODULE: 2,
+    NAMESPACE: 3,
+    PACKAGE: 4,
+    CLASS: 5,
+    METHOD: 6,
+    PROPERTY: 7,
+    FIELD: 8,
+    CONSTRUCTOR: 9,
+    ENUM: 10,
+    INTERFACE: 11,
+    FUNCTION: 12,
+    VARIABLE: 13,
+    CONSTANT: 14,
+    STRING: 15,
+    NUMBER: 16,
+    BOOLEAN: 17,
+    ARRAY: 18,
+    OBJECT: 19,
+    KEY: 20,
+    NULL: 21,
+    ENUMMEMBER: 22,
+    STRUCT: 23,
+    EVENT: 24,
+    OPERATOR: 25,
+    TYPEPARAMETER: 26,
+});
+
+/**
+ * @enum { string }
+ */
+// eslint-disable-next-line @typescript-eslint/naming-convention
+const CssClass = Object.freeze({
+  TITLE: 'title',
+  CELL: 'cell',
+  CLICKABLE: 'clickable',
+  CONSTRUCTOR: 'constructor',
+  FUNCTION: 'function',
+  INTERFACE: 'interface',
+  METHOD: 'method',
+  MODULE: 'module',
+  PROPERTY: 'property',
+  TYPE: 'type',
+});
+
 class CallGraph {
   /**
    * the SVG element
@@ -92,11 +142,6 @@ class CallGraph {
 
   processSVG() {
     forEachSelectedChild(this.svg, "a", (a) => {
-      let urlComps = a.href.baseVal.split(".");
-      if (urlComps[0] !== "__classes__") {
-        return;
-      }
-
       let docFrag = document.createDocumentFragment();
       docFrag.append(...a.childNodes);
 
@@ -104,8 +149,47 @@ class CallGraph {
       g.replaceChild(docFrag, a);
       g.id = g.id.replace(/^a_/, "");
 
-      if (urlComps.length > 1) {
-        g.classList.add(...urlComps.slice(1));
+      const kind = parseInt(a.href.baseVal);
+      if (isNaN(kind)) { // title
+        g.classList.add(CssClass.TITLE);
+
+        const [path, id] = a.href.baseVal.split(';');
+        g.setAttribute("data-path", path);
+        g.setAttribute("data-file_id", id);
+
+        return;
+      }
+
+      g.setAttribute("data-kind", kind);
+
+      g.classList.add(CssClass.CELL);
+      switch (kind) {
+        case SymbolKind.MODULE:
+          g.classList.add(CssClass.MODULE);
+          break;
+        case SymbolKind.FUNCTION:
+          g.classList.add(CssClass.FUNCTION, CssClass.CLICKABLE);
+          break;
+        case SymbolKind.METHOD:
+          g.classList.add(CssClass.METHOD, CssClass.CLICKABLE);
+          break;
+        case SymbolKind.CONSTRUCTOR:
+          g.classList.add(CssClass.CONSTRUCTOR, CssClass.CLICKABLE);
+          break;
+        case SymbolKind.INTERFACE:
+          g.classList.add(CssClass.INTERFACE, CssClass.CLICKABLE);
+          break;
+        case SymbolKind.FIELD:
+        case SymbolKind.PROPERTY:
+          g.classList.add(CssClass.PROPERTY);
+          break;
+        case SymbolKind.CLASS:
+        case SymbolKind.STRUCT:
+        case SymbolKind.TYPEPARAMETER:
+          g.classList.add(CssClass.TYPE);
+          break;
+        default:
+          break;
       }
     });
 

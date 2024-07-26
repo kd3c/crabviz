@@ -11,7 +11,7 @@ mod tests;
 pub(crate) use types::*;
 use {
     crate::{
-        graph::{dot::Dot, Cell, CssClass, Edge, Subgraph},
+        graph::{dot::Dot, Cell, Edge, EdgeCssClass, Subgraph},
         lang,
         lsp_types::{
             CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall,
@@ -145,10 +145,7 @@ impl GraphGenerator {
         let mut tables = files
             .values()
             .map(|file| {
-                let mut table = self.lang.file_repr(file);
-                if let Some(cells) = self.highlights.get(&file.id) {
-                    table.highlight_cells(cells);
-                }
+                let table = self.lang.file_repr(file);
 
                 (file.id, table)
             })
@@ -246,7 +243,7 @@ impl GraphGenerator {
                     cell_ids_ref.contains(&&from).then_some(Edge {
                         from,
                         to,
-                        classes: CssClass::Impl.into(),
+                        classes: EdgeCssClass::Impl.into(),
                     })
                 })
             });
