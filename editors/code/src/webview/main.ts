@@ -1,6 +1,6 @@
-import { provideVSCodeDesignSystem, vsCodeButton, Button, vsCodeTextField } from "@vscode/webview-ui-toolkit";
+import { provideVSCodeDesignSystem, vsCodeButton, Button, vsCodeTextField, TextField } from "@vscode/webview-ui-toolkit";
 
-provideVSCodeDesignSystem().register(vsCodeTextField(), vsCodeButton());
+provideVSCodeDesignSystem().register(vsCodeButton(), vsCodeTextField());
 
 
 const vscode = acquireVsCodeApi();
@@ -10,15 +10,44 @@ window.addEventListener('message', (e) => {
   const message = e.data;
 
   switch (message.command) {
-    case 'exportSVG':
+    case 'export SVG':
       exportSVG(message.uri);
       break;
+    case 'select symbol':
+      const searchField = document.getElementById('crabviz_search_field') as TextField;
+      searchField.value = message.symbol;
   }
 });
 
 function main() {
+  const files = Array.from(
+    <NodeListOf<HTMLElement>>document.querySelectorAll('#crabviz_svg g.title'),
+    (t) => {
+      return { id: t.dataset.file_id!, path: t.dataset.path, name: t.firstElementChild?.textContent };
+    }
+  );
+  const symbols = Array.from(
+    <NodeListOf<HTMLElement>>document.querySelectorAll('#crabviz_svg g.cell'),
+    (cell) => {
+      return { id: cell.id, name: cell.querySelector(":scope > text:last-of-type")?.textContent, kind: cell.dataset.kind! };
+    }
+  );
+  vscode.postMessage({
+    command: "build quickpick items",
+    files,
+    symbols,
+  });
+
+
+  const searchField = document.getElementById('crabviz_search_field') as TextField;
+  searchField.addEventListener('focus', (e) => {
+    vscode.postMessage({
+      command: "search symbols",
+    });
+  });
+
   const saveButton = document.getElementById('crabviz_save_button') as Button;
-  saveButton?.addEventListener('click', () => {
+  saveButton.addEventListener('click', () => {
     vscode.postMessage({
       command: 'save',
     });
@@ -26,7 +55,7 @@ function main() {
 }
 
 function exportSVG(uri: any) {
-  const svg = <SVGSVGElement>document.querySelector('svg')!.cloneNode(true);
+  const svg = <SVGSVGElement>document.querySelector('#crabviz_svg svg')!.cloneNode(true);
   const viewport = svg.querySelector(':scope > g')!;
   const graph = viewport.querySelector(':scope > g')!;
 
@@ -39,7 +68,7 @@ function exportSVG(uri: any) {
   );
 
   vscode.postMessage({
-    command: 'saveSVG',
+    command: 'save SVG',
     uri: uri,
     svg: svg.outerHTML.replaceAll("&nbsp;", "&#160;")
   });

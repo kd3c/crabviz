@@ -1,6 +1,35 @@
 import * as vscode from 'vscode';
 import { extname } from "path";
 
+const ICONS = [
+	new vscode.ThemeIcon("symbol-file", new vscode.ThemeColor("symbolIcon.fileForeground")),
+  new vscode.ThemeIcon("symbol-module", new vscode.ThemeColor("symbolIcon.moduleForeground")),
+  new vscode.ThemeIcon("symbol-namespace", new vscode.ThemeColor("symbolIcon.namespaceForeground")),
+  new vscode.ThemeIcon("symbol-package", new vscode.ThemeColor("symbolIcon.packageForeground")),
+  new vscode.ThemeIcon("symbol-class", new vscode.ThemeColor("symbolIcon.classForeground")),
+  new vscode.ThemeIcon("symbol-method", new vscode.ThemeColor("symbolIcon.methodForeground")),
+  new vscode.ThemeIcon("symbol-property", new vscode.ThemeColor("symbolIcon.propertyForeground")),
+  new vscode.ThemeIcon("symbol-field", new vscode.ThemeColor("symbolIcon.fieldForeground")),
+  new vscode.ThemeIcon("symbol-constructor", new vscode.ThemeColor("symbolIcon.constructorForeground")),
+  new vscode.ThemeIcon("symbol-enum", new vscode.ThemeColor("symbolIcon.enumeratorForeground")),
+  new vscode.ThemeIcon("symbol-interface", new vscode.ThemeColor("symbolIcon.interfaceForeground")),
+  new vscode.ThemeIcon("symbol-function", new vscode.ThemeColor("symbolIcon.functionForeground")),
+  new vscode.ThemeIcon("symbol-variable", new vscode.ThemeColor("symbolIcon.variableForeground")),
+  new vscode.ThemeIcon("symbol-constant", new vscode.ThemeColor("symbolIcon.constantForeground")),
+  new vscode.ThemeIcon("symbol-string", new vscode.ThemeColor("symbolIcon.stringForeground")),
+  new vscode.ThemeIcon("symbol-number", new vscode.ThemeColor("symbolIcon.numberForeground")),
+  new vscode.ThemeIcon("symbol-boolean", new vscode.ThemeColor("symbolIcon.booleanForeground")),
+  new vscode.ThemeIcon("symbol-array", new vscode.ThemeColor("symbolIcon.arrayForeground")),
+  new vscode.ThemeIcon("symbol-object", new vscode.ThemeColor("symbolIcon.objectForeground")),
+  new vscode.ThemeIcon("symbol-key", new vscode.ThemeColor("symbolIcon.keyForeground")),
+  new vscode.ThemeIcon("symbol-null", new vscode.ThemeColor("symbolIcon.nullForeground")),
+  new vscode.ThemeIcon("symbol-enummember", new vscode.ThemeColor("symbolIcon.enummemberForeground")),
+  new vscode.ThemeIcon("symbol-struct", new vscode.ThemeColor("symbolIcon.structForeground")),
+  new vscode.ThemeIcon("symbol-event", new vscode.ThemeColor("symbolIcon.eventForeground")),
+  new vscode.ThemeIcon("symbol-operator", new vscode.ThemeColor("symbolIcon.operatorForeground")),
+  new vscode.ThemeIcon("symbol-typeparameter", new vscode.ThemeColor("symbolIcon.typeparameterForeground")),
+];
+
 export class CallGraphPanel {
 	public static readonly viewType = 'crabviz.callgraph';
 
@@ -13,6 +42,8 @@ export class CallGraphPanel {
 
 	private svg: string | undefined;
 	private focusMode = false;
+
+	private quickpickItems: vscode.QuickPickItem[] | undefined;
 
 	public constructor(extensionUri: vscode.Uri) {
 		this._extensionUri = extensionUri;
@@ -32,10 +63,27 @@ export class CallGraphPanel {
 		this._panel.webview.onDidReceiveMessage(
 			message => {
 				switch (message.command) {
+					case 'build quickpick items':
+						const files = message.files.map((f: {id: string, name: string, path: string}) => {
+							return { id: f.id, label: f.name, iconPath: ICONS[0], detail: f.path };
+						});
+						const symbols = message.symbols.map((s: {id: string, name: string, kind: number}) => {
+							return { id: s.id, label: s.name, iconPath: ICONS[s.kind-1] };
+						});
+						this.quickpickItems = files.concat(symbols).sort((a: {id: string }, b: {id: string}) => {
+							return a.id.localeCompare(b.id);
+						});
+						break;
+					case 'search symbols':
+						vscode.window.showQuickPick(this.quickpickItems!).then(item => {
+							if (!item) { return; }
+							this._panel.webview.postMessage({ command: 'select symbol', symbol: item.label});
+						});
+						break;
 					case 'save':
 						this.save();
 						break;
-					case 'saveSVG':
+					case 'save SVG':
 						this.writeFile(vscode.Uri.from(message.uri), message.svg);
 						break;
 				}
@@ -99,7 +147,7 @@ export class CallGraphPanel {
 			<script type="module" nonce="${nonce}" src="${this._panel.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'webview.js'))}"></script>`
 			,
 			`<div id="crabviz_toolbar">
-				<vscode-text-field id="crabviz_toolbar_field" readonly=true></vscode-text-field>
+				<vscode-text-field id="crabviz_search_field" readonly=true></vscode-text-field>
 				<vscode-button>Go To Definition</vscode-button>
 				<vscode-button id="crabviz_save_button">Save</vscode-button>
 			</div>`];
@@ -121,7 +169,6 @@ export class CallGraphPanel {
 						}
 					</style>
 					${scripts.map((s) => `<script nonce="${nonce}">${s.toString()}</script>`).join('\n')}
-					${unexported[0]}
 			</head>
 			<body data-vscode-context='{ "preventDefaultContextMenuItems": true }'>
 					${unexported[1]}
@@ -138,6 +185,7 @@ export class CallGraphPanel {
 							dblClickZoomEnabled: false,
 						});
 					</script>
+					${unexported[0]}
 			</body>
 			</html>`
 		);
@@ -159,7 +207,7 @@ export class CallGraphPanel {
 						break;
 					}
 					case '.svg': {
-						this._panel.webview.postMessage({ command: 'exportSVG', uri: uri });
+						this._panel.webview.postMessage({ command: 'export SVG', uri: uri });
 						break;
 					}
 					default: break;
