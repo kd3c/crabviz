@@ -59,7 +59,7 @@ export class CommandManager {
 			return;
 		}
 
-		const languages = Array.from(files.keys()).map(lang => ({ label: lang }));
+		const languages = Array.from(files.keys(), lang => ({ label: lang }));
 		let lang: string;
 		if (languages.length > 1) {
 			const selectedItem = await vscode.window.showQuickPick(languages, {

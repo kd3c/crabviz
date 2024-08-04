@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 
 import { initSync, set_panic_hook } from '../out/crabviz';
-import { CallGraphPanel } from './webview';
 import { CommandManager } from './command-manager';
 
 export async function activate(context: vscode.ExtensionContext) {

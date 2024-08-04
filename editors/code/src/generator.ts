@@ -319,10 +319,9 @@ class VisitedFile {
   }
 
   sortedFuncs(): vscode.Range[] {
-    const funcs = Array.from(this.funcs.values());
-    return funcs
-            .sort((p1, p2) => p1[0].start.compareTo(p2[0].start))
-            .map(tuple => tuple[0]);
+    return Array
+            .from(this.funcs.values(), f => f[0])
+            .sort((p1, p2) => p1.start.compareTo(p2.start));
   }
 };
 
