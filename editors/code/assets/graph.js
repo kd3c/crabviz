@@ -248,8 +248,8 @@ class CallGraph {
 
   addListeners() {
     const delta = 6;
-    let startX;
-    let startY;
+    let startX = 0;
+    let startY = 0;
 
     this.svg.addEventListener('mousedown', (event) => {
       startX = event.pageX;
@@ -334,6 +334,14 @@ class CallGraph {
     }
 
     this.edgesFadingStyle.disabled = false;
+
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        command: "select symbol",
+        id: cell.id,
+        symbol: cell.querySelector(":scope > text:last-of-type")?.textContent,
+      }
+    }));
   };
 
   /**
@@ -362,6 +370,15 @@ class CallGraph {
     this.edgesFadingStyle.disabled = false;
 
     node.classList.add("selected");
+
+    const titleG = node.querySelector("g.title");
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        command: "select symbol",
+        id: node.id,
+        symbol: titleG.firstElementChild.textContent,
+      }
+    }));
   }
 
   /**

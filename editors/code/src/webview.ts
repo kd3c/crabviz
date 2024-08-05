@@ -30,6 +30,10 @@ const ICONS = [
   new vscode.ThemeIcon("symbol-typeparameter", new vscode.ThemeColor("symbolIcon.typeparameterForeground")),
 ];
 
+interface SearchFieldQuickPickItem extends vscode.QuickPickItem {
+	id: string,
+}
+
 export class CallGraphPanel {
 	public static readonly viewType = 'crabviz.callgraph';
 
@@ -43,7 +47,7 @@ export class CallGraphPanel {
 	private svg: string | undefined;
 	private focusMode = false;
 
-	private quickpickItems: vscode.QuickPickItem[] | undefined;
+	private quickpickItems: SearchFieldQuickPickItem[] | undefined;
 
 	public constructor(extensionUri: vscode.Uri) {
 		this._extensionUri = extensionUri;
@@ -77,7 +81,7 @@ export class CallGraphPanel {
 					case 'search symbols':
 						vscode.window.showQuickPick(this.quickpickItems!).then(item => {
 							if (!item) { return; }
-							this._panel.webview.postMessage({ command: 'select symbol', symbol: item.label});
+							this._panel.webview.postMessage({ command: 'select symbol', id: item.id, symbol: item.label});
 						});
 						break;
 					case 'save':

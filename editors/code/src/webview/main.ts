@@ -16,6 +16,13 @@ window.addEventListener('message', (e) => {
     case 'select symbol':
       const searchField = document.getElementById('crabviz_search_field') as TextField;
       searchField.value = message.symbol;
+
+      if (e.source) {
+        const elem = document.getElementById(message.id);
+        const initDict = { clientX: elem?.offsetLeft, clientY: elem?.offsetTop, bubbles: true };
+        elem?.dispatchEvent(new MouseEvent('mousedown', initDict));;
+        elem?.dispatchEvent(new MouseEvent('mouseup', initDict));;
+      }
   }
 });
 
