@@ -11,7 +11,7 @@ mod tests;
 pub(crate) use types::*;
 use {
     crate::{
-        graph::{dot::Dot, Cell, Edge, EdgeCssClass, Subgraph},
+        graph::{dot::Dot, Cell, Edge, EdgeCssClass, Subgraph, TableNode},
         lang,
         lsp_types::{
             CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall,
@@ -29,10 +29,10 @@ use {
 pub struct GraphGenerator {
     // TODO: use a trie map to store files
     root: String,
-    files: HashMap<String, FileOutline>,
     next_file_id: u32,
 
     lang: Box<dyn lang::Language>,
+    files: HashMap<String, TableNode>,
 
     incoming_calls: HashMap<SymbolLocation, Vec<CallHierarchyIncomingCall>>,
     outgoing_calls: HashMap<SymbolLocation, Vec<CallHierarchyOutgoingCall>>,
@@ -45,8 +45,8 @@ impl GraphGenerator {
     pub fn new(root: String, lang: &str) -> Self {
         Self {
             root,
-            files: HashMap::new(),
             next_file_id: 1,
+            files: HashMap::new(),
             incoming_calls: HashMap::new(),
             outgoing_calls: HashMap::new(),
             interfaces: HashMap::new(),
@@ -65,14 +65,15 @@ impl GraphGenerator {
             return false;
         }
 
-        let file = FileOutline {
-            id: self.next_file_id,
-            path: PathBuf::from(&file_path),
-            symbols,
-        };
+        let path = PathBuf::from(&file_path);
 
         match self.files.entry(file_path) {
             Entry::Vacant(entry) => {
+                let file = TableNode {
+                    id: self.next_file_id,
+                    path,
+                    cells: self.lang.symbols_repr(&symbols),
+                };
                 entry.insert(file);
                 self.next_file_id += 1;
             }
@@ -139,27 +140,12 @@ impl GraphGenerator {
     }
 
     pub fn generate_dot_source(&self) -> String {
-        let files = &self.files;
-
-        // TODO: it's better to construct tables before fetching call hierarchy, so that we can skip the filtered out symbols.
-        let mut tables = files
-            .values()
-            .map(|file| {
-                let table = self.lang.file_repr(file);
-
-                (file.id, table)
-            })
-            .collect::<HashMap<_, _>>();
-
         let mut cell_ids = HashSet::new();
-        tables
+        self.files
             .iter()
             .flat_map(|(_, tbl)| tbl.cells.iter().map(|cell| (tbl.id, cell)))
             .for_each(|(tid, cell)| self.collect_cell_ids(tid, cell, &mut cell_ids));
         let cell_ids_ref = &cell_ids;
-
-        let updated_files = RefCell::new(HashSet::new());
-        let updated_files_ref = &updated_files;
 
         let inserted_symbols = RefCell::new(HashSet::new());
         let inserted_symbols_ref = &inserted_symbols;
@@ -168,13 +154,13 @@ impl GraphGenerator {
             .incoming_calls
             .iter()
             .filter_map(|(callee, callers)| {
-                let to = callee.location_id(files)?;
+                let to = callee.location_id(&self.files)?;
 
                 cell_ids.contains(&to).then_some((to, callers))
             })
             .flat_map(|(to, calls)| {
                 calls.into_iter().filter_map(move |call| {
-                    let from = call.from.location_id(files)?;
+                    let from = call.from.location_id(&self.files)?;
 
                     // incoming calls may start from nested functions, which may not be included in file symbols in some lsp server implementations.
                     // in that case, we add the missing nested symbol to the symbol list.
@@ -183,7 +169,7 @@ impl GraphGenerator {
                     (cell_ids_ref.contains(&from)
                         || inserted_symbols_ref.borrow().contains(&from)
                         || {
-                            let file = files.get(&call.from.uri.path)? as *const FileOutline;
+                            let file = self.files.get(&call.from.uri.path)? as *const TableNode;
 
                             let updated = unsafe {
                                 self.try_insert_symbol(
@@ -193,9 +179,6 @@ impl GraphGenerator {
                             };
 
                             if updated {
-                                updated_files_ref
-                                    .borrow_mut()
-                                    .insert(call.from.uri.path.clone());
                                 inserted_symbols_ref.borrow_mut().insert(from);
                             }
                             updated
@@ -212,13 +195,13 @@ impl GraphGenerator {
             .outgoing_calls
             .iter()
             .filter_map(|(caller, callees)| {
-                let from = caller.location_id(files)?;
+                let from = caller.location_id(&self.files)?;
 
                 cell_ids.contains(&from).then_some((from, callees))
             })
             .flat_map(|(from, callees)| {
                 callees.into_iter().filter_map(move |call| {
-                    let to = call.to.location_id(files)?;
+                    let to = call.to.location_id(&self.files)?;
 
                     cell_ids_ref.contains(&to).then_some(Edge {
                         from,
@@ -232,13 +215,13 @@ impl GraphGenerator {
             .interfaces
             .iter()
             .filter_map(|(interface, implementations)| {
-                let to = interface.location_id(files)?;
+                let to = interface.location_id(&self.files)?;
 
                 cell_ids.contains(&to).then_some((to, implementations))
             })
             .flat_map(|(to, implementations)| {
                 implementations.into_iter().filter_map(move |location| {
-                    let from = location.location_id(files)?;
+                    let from = location.location_id(&self.files)?;
 
                     cell_ids_ref.contains(&&from).then_some(Edge {
                         from,
@@ -253,20 +236,14 @@ impl GraphGenerator {
             .chain(implementations)
             .collect::<HashSet<_>>();
 
-        updated_files.borrow().iter().for_each(|path| {
-            let file = files.get(path).unwrap();
-            let table = tables.get_mut(&file.id).unwrap();
-            *table = self.lang.file_repr(file);
-        });
+        let subgraphs = self.subgraphs(self.files.iter().map(|(_, f)| f));
 
-        let subgraphs = self.subgraphs(files.iter().map(|(_, f)| f));
-
-        Dot::generate_dot_source(tables.into_values(), edges.into_iter(), &subgraphs)
+        Dot::generate_dot_source(self.files.values(), edges.into_iter(), &subgraphs)
     }
 
     fn subgraphs<'a, I>(&'a self, files: I) -> Vec<Subgraph>
     where
-        I: Iterator<Item = &'a FileOutline>,
+        I: Iterator<Item = &'a TableNode>,
     {
         let mut dirs = BTreeMap::new();
         for f in files {
@@ -325,30 +302,30 @@ impl GraphGenerator {
             .for_each(|child| self.collect_cell_ids(table_id, child, ids));
     }
 
-    fn try_insert_symbol(&self, item: &CallHierarchyItem, file: &mut FileOutline) -> bool {
-        let mut symbols = &mut file.symbols;
+    fn try_insert_symbol(&self, item: &CallHierarchyItem, file: &mut TableNode) -> bool {
+        let mut cells = &mut file.cells;
         let mut is_subsymbol = false;
+        let range_start = (item.range.start.line, item.range.start.character);
+        let range_end = (item.range.end.line, item.range.end.character);
 
         loop {
-            let i = match symbols
-                .binary_search_by_key(&item.range.start, |symbol| symbol.range.start)
-            {
+            let i = match cells.binary_search_by_key(&range_start, |cell| cell.range_start) {
                 Ok(_) => return true, // should be unreachable
                 Err(i) => i,
             };
 
             if i > 0 {
-                let symbol = symbols.get(i - 1).unwrap();
+                let cell = cells.get(i - 1).unwrap();
 
-                if symbol.range.end > item.range.end {
+                if cell.range_end > range_end {
                     // we just deal with nested functions here
-                    if !matches!(symbol.kind, SymbolKind::Function | SymbolKind::Method) {
+                    if !matches!(cell.kind, SymbolKind::Function | SymbolKind::Method) {
                         return false;
                     }
                     is_subsymbol = true;
 
                     // fight the borrow checker
-                    symbols = &mut symbols.get_mut(i - 1).unwrap().children;
+                    cells = &mut cells.get_mut(i - 1).unwrap().children;
 
                     continue;
                 }
@@ -357,24 +334,21 @@ impl GraphGenerator {
             if is_subsymbol {
                 let mut children = vec![];
 
-                if let Some(next_symbol) = symbols.get(i) {
-                    if next_symbol.range.start > item.range.start
-                        && next_symbol.range.end < item.range.end
-                    {
-                        let next_symbol = symbols.remove(i);
-                        children.push(next_symbol);
+                if let Some(next_cell) = cells.get(i) {
+                    if next_cell.range_start > range_start && next_cell.range_end < range_end {
+                        let next_cell = cells.remove(i);
+                        children.push(next_cell);
                     }
                 }
 
-                symbols.insert(
+                cells.insert(
                     i,
-                    DocumentSymbol {
-                        name: item.name.clone(),
-                        detail: item.detail.clone(),
+                    Cell {
+                        range_start: (item.range.start.line, item.range.start.character),
+                        range_end: (item.range.end.line, item.range.end.character),
                         kind: item.kind,
-                        tags: item.tags.clone(),
-                        range: item.range,
-                        selection_range: item.selection_range,
+                        title: item.name.clone(),
+                        style: self.lang.symbol_style(&item.kind),
                         children,
                     },
                 );
@@ -382,5 +356,25 @@ impl GraphGenerator {
 
             return is_subsymbol;
         }
+    }
+}
+
+trait LocationId {
+    fn location_id(&self, files: &HashMap<String, TableNode>) -> Option<(u32, u32, u32)>;
+}
+
+impl LocationId for SymbolLocation {
+    fn location_id(&self, files: &HashMap<String, TableNode>) -> Option<(u32, u32, u32)> {
+        Some((files.get(&self.path)?.id, self.line, self.character))
+    }
+}
+
+impl LocationId for CallHierarchyItem {
+    fn location_id(&self, files: &HashMap<String, TableNode>) -> Option<(u32, u32, u32)> {
+        Some((
+            files.get(&self.uri.path)?.id,
+            self.selection_range.start.line,
+            self.selection_range.start.character,
+        ))
     }
 }

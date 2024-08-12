@@ -1,4 +1,5 @@
 use {
+    crate::lsp_types::SymbolKind,
     enumset::{EnumSet, EnumSetType},
     std::{
         hash::{Hash, Hasher},
@@ -45,7 +46,7 @@ impl Eq for Edge {}
 pub struct Cell {
     pub range_start: (u32, u32),
     pub range_end: (u32, u32),
-    pub kind: u8,
+    pub kind: SymbolKind,
     pub title: String,
     pub style: Style,
     pub children: Vec<Cell>,

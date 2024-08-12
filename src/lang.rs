@@ -4,8 +4,7 @@ mod rust;
 use {
     self::{go::Go, rust::Rust},
     crate::{
-        generator::FileOutline,
-        graph::{Cell, Style, TableNode},
+        graph::{Cell, Style},
         lsp_types::{DocumentSymbol, SymbolKind},
     },
 };
@@ -15,27 +14,20 @@ pub(crate) trait Language {
         false
     }
 
-    fn file_repr(&self, file: &FileOutline) -> TableNode {
-        let cells = file
-            .symbols
+    fn symbols_repr(&self, symbols: &[DocumentSymbol]) -> Vec<Cell> {
+        symbols
             .iter()
             .filter(|symbol| self.filter_symbol(symbol))
-            .map(|symbol| self.symbol_repr(file.id, symbol))
-            .collect();
-
-        TableNode {
-            id: file.id,
-            path: file.path.clone(),
-            cells,
-        }
+            .map(|symbol| self.symbol_repr(symbol))
+            .collect()
     }
 
-    fn symbol_repr(&self, file_id: u32, symbol: &DocumentSymbol) -> Cell {
+    fn symbol_repr(&self, symbol: &DocumentSymbol) -> Cell {
         let children = symbol
             .children
             .iter()
             .filter(|s| symbol.kind == SymbolKind::Interface || self.filter_symbol(s))
-            .map(|symbol| self.symbol_repr(file_id, symbol))
+            .map(|symbol| self.symbol_repr(symbol))
             .collect();
 
         let range = symbol.selection_range;
@@ -43,9 +35,9 @@ pub(crate) trait Language {
         Cell {
             range_start: (range.start.line, range.start.character),
             range_end: (range.end.line, range.end.character),
-            kind: symbol.kind as u8 - SymbolKind::File as u8 + 1,
+            kind: symbol.kind,
             title: symbol.name.clone(),
-            style: self.symbol_style(symbol),
+            style: self.symbol_style(&symbol.kind),
             children,
         }
     }
@@ -61,8 +53,8 @@ pub(crate) trait Language {
         }
     }
 
-    fn symbol_style(&self, symbol: &DocumentSymbol) -> Style {
-        match symbol.kind {
+    fn symbol_style(&self, kind: &SymbolKind) -> Style {
+        match kind {
             SymbolKind::Module => Style {
                 rounded: true,
                 ..Default::default()

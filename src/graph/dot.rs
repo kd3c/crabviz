@@ -1,6 +1,9 @@
 use {
     super::EdgeCssClass,
-    crate::graph::{Cell, Edge, Subgraph, TableNode},
+    crate::{
+        graph::{Cell, Edge, Subgraph, TableNode},
+        lsp_types::SymbolKind,
+    },
     enumset::EnumSet,
     std::iter,
 };
@@ -16,14 +19,14 @@ const EMPTY_STRING: String = String::new();
 pub(crate) struct Dot;
 
 impl Dot {
-    pub fn generate_dot_source<T, E>(
+    pub fn generate_dot_source<'a, T, E>(
         tables: T,
         // nodes: &[Node],
         edges: E,
         subgraphs: &[Subgraph],
     ) -> String
     where
-        T: Iterator<Item = TableNode>,
+        T: Iterator<Item = &'a TableNode>,
         E: Iterator<Item = Edge>,
     {
         let tables = tables
@@ -104,7 +107,7 @@ digraph {{
             escape_html(&cell.title)
         );
         let port = format!("{}_{}", cell.range_start.0, cell.range_start.1);
-        let href = format!(r#"HREF="{}""#, cell.kind);
+        let href = format!(r#"HREF="{}""#, cell.kind as u8 - SymbolKind::File as u8 + 1);
 
         if cell.children.is_empty() {
             format!(
