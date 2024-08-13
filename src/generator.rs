@@ -341,7 +341,7 @@ impl GraphGenerator {
                 cells.insert(
                     i,
                     Cell {
-                        range: item.range,
+                        range: item.selection_range,
                         kind: item.kind,
                         title: item.name.clone(),
                         style: self.lang.symbol_style(&item.kind),
