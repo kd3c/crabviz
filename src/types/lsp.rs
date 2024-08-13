@@ -46,7 +46,7 @@ pub enum SymbolTag {
 
 /// Position in a text document expressed as zero-based line and character offset.
 /// A position is between two characters like an 'insert' cursor in a editor.
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Default, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Default, Deserialize, Hash)]
 pub struct Position {
     /// Line position in a document (zero-based).
     pub line: u32,

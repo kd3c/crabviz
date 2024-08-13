@@ -1,5 +1,5 @@
 use {
-    crate::lsp_types::SymbolKind,
+    crate::types::{Position, Range, SymbolKind},
     enumset::{EnumSet, EnumSetType},
     std::{
         hash::{Hash, Hasher},
@@ -21,9 +21,9 @@ pub trait GenerateSVG {
 
 #[derive(Debug, Clone)]
 pub struct Edge {
-    // (file_id, line, character)
-    pub from: (u32, u32, u32),
-    pub to: (u32, u32, u32),
+    // (file_id, (line, character))
+    pub from: (u32, Position),
+    pub to: (u32, Position),
     pub classes: EnumSet<EdgeCssClass>,
 }
 
@@ -44,8 +44,7 @@ impl Eq for Edge {}
 
 #[derive(Debug)]
 pub struct Cell {
-    pub range_start: (u32, u32),
-    pub range_end: (u32, u32),
+    pub range: Range,
     pub kind: SymbolKind,
     pub title: String,
     pub style: Style,

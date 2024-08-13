@@ -1,6 +1,6 @@
 use {
     super::GraphGenerator,
-    crate::lsp_types::{DocumentSymbol, Position, Range, SymbolKind},
+    crate::types::{DocumentSymbol, Position, Range, SymbolKind},
 };
 
 #[test]

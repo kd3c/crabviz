@@ -5,7 +5,7 @@ use {
     self::{go::Go, rust::Rust},
     crate::{
         graph::{Cell, Style},
-        lsp_types::{DocumentSymbol, SymbolKind},
+        types::{DocumentSymbol, SymbolKind},
     },
 };
 
@@ -30,11 +30,8 @@ pub(crate) trait Language {
             .map(|symbol| self.symbol_repr(symbol))
             .collect();
 
-        let range = symbol.selection_range;
-
         Cell {
-            range_start: (range.start.line, range.start.character),
-            range_end: (range.end.line, range.end.character),
+            range: symbol.selection_range,
             kind: symbol.kind,
             title: symbol.name.clone(),
             style: self.symbol_style(&symbol.kind),

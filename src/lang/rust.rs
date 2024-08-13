@@ -1,6 +1,6 @@
 use {
     super::Language,
-    crate::lsp_types::{DocumentSymbol, SymbolKind},
+    crate::types::{DocumentSymbol, SymbolKind},
 };
 
 pub(crate) struct Rust;

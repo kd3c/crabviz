@@ -1,5 +1,3 @@
-mod types;
-
 #[cfg(feature = "wasm")]
 mod wasm;
 #[cfg(feature = "wasm")]
@@ -8,14 +6,13 @@ pub use wasm::{set_panic_hook, GraphGeneratorWasm};
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::*;
 use {
     crate::{
         graph::{dot::Dot, Cell, Edge, EdgeCssClass, Subgraph, TableNode},
         lang,
-        lsp_types::{
+        types::{
             CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall,
-            DocumentSymbol, Location, Position, SymbolKind,
+            DocumentSymbol, Location, Position, SymbolKind, SymbolLocation,
         },
     },
     enumset::EnumSet,
@@ -90,7 +87,7 @@ impl GraphGenerator {
         position: Position,
         calls: Vec<CallHierarchyIncomingCall>,
     ) {
-        let location = SymbolLocation::new(file_path, &position);
+        let location = SymbolLocation::new(file_path, position);
         self.incoming_calls.insert(location, calls);
     }
 
@@ -100,7 +97,7 @@ impl GraphGenerator {
         position: Position,
         calls: Vec<CallHierarchyOutgoingCall>,
     ) {
-        let location = SymbolLocation::new(file_path, &position);
+        let location = SymbolLocation::new(file_path, position);
         self.outgoing_calls.insert(location, calls);
     }
 
@@ -131,10 +128,10 @@ impl GraphGenerator {
         position: Position,
         locations: Vec<Location>,
     ) {
-        let location = SymbolLocation::new(file_path, &position);
+        let location = SymbolLocation::new(file_path, position);
         let implementations = locations
             .into_iter()
-            .map(|location| SymbolLocation::new(location.uri.path, &location.range.start))
+            .map(|location| SymbolLocation::new(location.uri.path, location.range.start))
             .collect();
         self.interfaces.insert(location, implementations);
     }
@@ -295,8 +292,8 @@ impl GraphGenerator {
         }
     }
 
-    fn collect_cell_ids(&self, table_id: u32, cell: &Cell, ids: &mut HashSet<(u32, u32, u32)>) {
-        ids.insert((table_id, cell.range_start.0, cell.range_start.1));
+    fn collect_cell_ids(&self, table_id: u32, cell: &Cell, ids: &mut HashSet<(u32, Position)>) {
+        ids.insert((table_id, cell.range.start));
         cell.children
             .iter()
             .for_each(|child| self.collect_cell_ids(table_id, child, ids));
@@ -305,11 +302,9 @@ impl GraphGenerator {
     fn try_insert_symbol(&self, item: &CallHierarchyItem, file: &mut TableNode) -> bool {
         let mut cells = &mut file.cells;
         let mut is_subsymbol = false;
-        let range_start = (item.range.start.line, item.range.start.character);
-        let range_end = (item.range.end.line, item.range.end.character);
 
         loop {
-            let i = match cells.binary_search_by_key(&range_start, |cell| cell.range_start) {
+            let i = match cells.binary_search_by_key(&item.range.start, |cell| cell.range.start) {
                 Ok(_) => return true, // should be unreachable
                 Err(i) => i,
             };
@@ -317,7 +312,7 @@ impl GraphGenerator {
             if i > 0 {
                 let cell = cells.get(i - 1).unwrap();
 
-                if cell.range_end > range_end {
+                if cell.range.end > item.range.end {
                     // we just deal with nested functions here
                     if !matches!(cell.kind, SymbolKind::Function | SymbolKind::Method) {
                         return false;
@@ -335,7 +330,9 @@ impl GraphGenerator {
                 let mut children = vec![];
 
                 if let Some(next_cell) = cells.get(i) {
-                    if next_cell.range_start > range_start && next_cell.range_end < range_end {
+                    if next_cell.range.start > item.range.start
+                        && next_cell.range.end < item.range.end
+                    {
                         let next_cell = cells.remove(i);
                         children.push(next_cell);
                     }
@@ -344,8 +341,7 @@ impl GraphGenerator {
                 cells.insert(
                     i,
                     Cell {
-                        range_start: (item.range.start.line, item.range.start.character),
-                        range_end: (item.range.end.line, item.range.end.character),
+                        range: item.range,
                         kind: item.kind,
                         title: item.name.clone(),
                         style: self.lang.symbol_style(&item.kind),
@@ -360,21 +356,17 @@ impl GraphGenerator {
 }
 
 trait LocationId {
-    fn location_id(&self, files: &HashMap<String, TableNode>) -> Option<(u32, u32, u32)>;
+    fn location_id(&self, files: &HashMap<String, TableNode>) -> Option<(u32, Position)>;
 }
 
 impl LocationId for SymbolLocation {
-    fn location_id(&self, files: &HashMap<String, TableNode>) -> Option<(u32, u32, u32)> {
-        Some((files.get(&self.path)?.id, self.line, self.character))
+    fn location_id(&self, files: &HashMap<String, TableNode>) -> Option<(u32, Position)> {
+        Some((files.get(&self.path)?.id, self.position))
     }
 }
 
 impl LocationId for CallHierarchyItem {
-    fn location_id(&self, files: &HashMap<String, TableNode>) -> Option<(u32, u32, u32)> {
-        Some((
-            files.get(&self.uri.path)?.id,
-            self.selection_range.start.line,
-            self.selection_range.start.character,
-        ))
+    fn location_id(&self, files: &HashMap<String, TableNode>) -> Option<(u32, Position)> {
+        Some((files.get(&self.uri.path)?.id, self.selection_range.start))
     }
 }

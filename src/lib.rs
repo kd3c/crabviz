@@ -1,6 +1,6 @@
 mod generator;
 mod graph;
 mod lang;
-mod lsp_types;
+mod types;
 
 pub use generator::GraphGenerator;

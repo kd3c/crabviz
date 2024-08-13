@@ -2,7 +2,7 @@ use {
     super::EdgeCssClass,
     crate::{
         graph::{Cell, Edge, Subgraph, TableNode},
-        lsp_types::SymbolKind,
+        types::SymbolKind,
     },
     enumset::EnumSet,
     std::iter,
@@ -106,7 +106,7 @@ digraph {{
                 .unwrap_or(EMPTY_STRING),
             escape_html(&cell.title)
         );
-        let port = format!("{}_{}", cell.range_start.0, cell.range_start.1);
+        let port = format!("{}_{}", cell.range.start.line, cell.range.start.character);
         let href = format!(r#"HREF="{}""#, cell.kind as u8 - SymbolKind::File as u8 + 1);
 
         if cell.children.is_empty() {
@@ -150,11 +150,11 @@ digraph {{
                 format!(
                     r#"{f0}:"{f1}_{f2}" -> {t0}:"{t1}_{t2}" [id="{f0}-{f0}:{f1}_{f2}-{t0}-{t0}:{t1}_{t2}", {classes}];"#,
                     f0 = e.from.0,
-                    f1 = e.from.1,
-                    f2 = e.from.2,
+                    f1 = e.from.1.line,
+                    f2 = e.from.1.character,
                     t0 = e.to.0,
-                    t1 = e.to.1,
-                    t2 = e.to.2,
+                    t1 = e.to.1.line,
+                    t2 = e.to.1.character,
                     classes = Dot::css_classes(e.classes)
                 )
             })
