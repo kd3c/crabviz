@@ -137,12 +137,8 @@ impl GraphGenerator {
     }
 
     pub fn generate_dot_source(&self) -> String {
-        let mut cell_ids = HashSet::new();
-        self.files
-            .iter()
-            .flat_map(|(_, tbl)| tbl.cells.iter().map(|cell| (tbl.id, cell)))
-            .for_each(|(tid, cell)| self.collect_cell_ids(tid, cell, &mut cell_ids));
-        let cell_ids_ref = &cell_ids;
+        let cells = self.collect_cells();
+        let cells_ref = &cells;
 
         let inserted_symbols = RefCell::new(HashSet::new());
         let inserted_symbols_ref = &inserted_symbols;
@@ -153,7 +149,7 @@ impl GraphGenerator {
             .filter_map(|(callee, callers)| {
                 let to = callee.location_id(&self.files)?;
 
-                cell_ids.contains(&to).then_some((to, callers))
+                cells.contains(&to).then_some((to, callers))
             })
             .flat_map(|(to, calls)| {
                 calls.into_iter().filter_map(move |call| {
@@ -163,7 +159,7 @@ impl GraphGenerator {
                     // in that case, we add the missing nested symbol to the symbol list.
                     // another approach would be to modify edges to make them start from the outter functions, which is not so accurate
 
-                    (cell_ids_ref.contains(&from)
+                    (cells_ref.contains(&from)
                         || inserted_symbols_ref.borrow().contains(&from)
                         || {
                             let file = self.files.get(&call.from.uri.path)? as *const TableNode;
@@ -194,13 +190,13 @@ impl GraphGenerator {
             .filter_map(|(caller, callees)| {
                 let from = caller.location_id(&self.files)?;
 
-                cell_ids.contains(&from).then_some((from, callees))
+                cells_ref.contains(&from).then_some((from, callees))
             })
             .flat_map(|(from, callees)| {
                 callees.into_iter().filter_map(move |call| {
                     let to = call.to.location_id(&self.files)?;
 
-                    cell_ids_ref.contains(&to).then_some(Edge {
+                    cells_ref.contains(&to).then_some(Edge {
                         from,
                         to,
                         classes: EnumSet::new(),
@@ -214,13 +210,13 @@ impl GraphGenerator {
             .filter_map(|(interface, implementations)| {
                 let to = interface.location_id(&self.files)?;
 
-                cell_ids.contains(&to).then_some((to, implementations))
+                cells_ref.contains(&to).then_some((to, implementations))
             })
             .flat_map(|(to, implementations)| {
                 implementations.into_iter().filter_map(move |location| {
                     let from = location.location_id(&self.files)?;
 
-                    cell_ids_ref.contains(&&from).then_some(Edge {
+                    cells_ref.contains(&&from).then_some(Edge {
                         from,
                         to,
                         classes: EdgeCssClass::Impl.into(),
@@ -292,11 +288,24 @@ impl GraphGenerator {
         }
     }
 
-    fn collect_cell_ids(&self, table_id: u32, cell: &Cell, ids: &mut HashSet<(u32, Position)>) {
-        ids.insert((table_id, cell.range.start));
-        cell.children
-            .iter()
-            .for_each(|child| self.collect_cell_ids(table_id, child, ids));
+    fn collect_cells(&self) -> HashSet<(u32, Position)> {
+        fn collect_cells(file_id: u32, cells: &[Cell], set: &mut HashSet<(u32, Position)>) {
+            cells.iter().for_each(|c| {
+                set.insert((file_id, c.range.start));
+
+                if !c.children.is_empty() {
+                    collect_cells(file_id, &c.children, set);
+                }
+            });
+        }
+
+        let mut cells = HashSet::new();
+
+        self.files
+            .values()
+            .for_each(|f| collect_cells(f.id, &f.cells, &mut cells));
+
+        cells
     }
 
     fn try_insert_symbol(&self, item: &CallHierarchyItem, file: &mut TableNode) -> bool {
