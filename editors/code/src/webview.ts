@@ -152,7 +152,7 @@ export class CallGraphPanel {
 			,
 			`<div id="crabviz_toolbar">
 				<vscode-text-field id="crabviz_search_field" readonly=true></vscode-text-field>
-				<vscode-button>Go To Definition</vscode-button>
+				<vscode-button id="crabviz_goto_button" disabled=true>Go To Definition</vscode-button>
 				<vscode-button id="crabviz_save_button">Save</vscode-button>
 			</div>`];
 

@@ -4,6 +4,9 @@ provideVSCodeDesignSystem().register(vsCodeButton(), vsCodeTextField());
 
 
 const vscode = acquireVsCodeApi();
+const searchField = document.getElementById('crabviz_search_field') as TextField;
+const gotoButton = document.getElementById('crabviz_goto_button') as Button;
+const saveButton = document.getElementById('crabviz_save_button') as Button;
 
 window.addEventListener('load', main);
 window.addEventListener('message', (e) => {
@@ -13,9 +16,13 @@ window.addEventListener('message', (e) => {
     case 'export SVG':
       exportSVG(message.uri);
       break;
+    case 'deselect symbol':
+      searchField.value = '';
+      gotoButton.disabled = true;
+      break;
     case 'select symbol':
-      const searchField = document.getElementById('crabviz_search_field') as TextField;
       searchField.value = message.symbol;
+      gotoButton.disabled = false;
 
       if (e.source) {
         const elem = document.getElementById(message.id);
@@ -23,6 +30,8 @@ window.addEventListener('message', (e) => {
         elem?.dispatchEvent(new MouseEvent('mousedown', initDict));;
         elem?.dispatchEvent(new MouseEvent('mouseup', initDict));;
       }
+
+      break;
   }
 });
 
@@ -46,14 +55,12 @@ function main() {
   });
 
 
-  const searchField = document.getElementById('crabviz_search_field') as TextField;
   searchField.addEventListener('focus', (e) => {
     vscode.postMessage({
       command: "search symbols",
     });
   });
 
-  const saveButton = document.getElementById('crabviz_save_button') as Button;
   saveButton.addEventListener('click', () => {
     vscode.postMessage({
       command: 'save',

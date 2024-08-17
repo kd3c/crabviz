@@ -300,6 +300,9 @@ class CallGraph {
     });
 
     this.edgesFadingStyle.disabled = true;
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { command: "deselect symbol" }
+    }));
   };
 
   /**
