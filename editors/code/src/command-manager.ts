@@ -86,11 +86,11 @@ export class CommandManager {
 			const generator = new Generator(root.uri, lang);
 			return generator.generateCallGraph(files.get(lang)!, progress, token);
 		})
-		.then(svg => {
+		.then(dot => {
 			if (cancelled) { return; }
 
 			const panel = new CallGraphPanel(this.context.extensionUri);
-			panel.showCallGraph(svg, false);
+			panel.showCallGraph(dot, false);
 		});
 	}
 
@@ -105,22 +105,21 @@ export class CommandManager {
 
 		const lang = this.languages.get(extname(uri.path)) ?? "";
 
-		const generator = new Generator(root.uri, lang);
-
 		vscode.window.withProgress({
 			location: vscode.ProgressLocation.Window,
 			title: "Crabviz: Generating call graph",
 		}, _ => {
+			const generator = new Generator(root.uri, lang);
 			return generator.generateFuncCallGraph(uri, anchor, ig);
 		})
-		.then(svg => {
-			if (!svg) {
+		.then(dot => {
+			if (!dot) {
 				vscode.window.showErrorMessage('No results');
 				return;
 			}
 
 			const panel = new CallGraphPanel(this.context.extensionUri);
-			panel.showCallGraph(svg, true);
+			panel.showCallGraph(dot, true);
 		});
 	}
 

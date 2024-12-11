@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { instance as vizInstance } from '@viz-js/viz';
 
 import { retryCommand } from './utils/command';
 import { GraphGenerator } from '../out/crabviz';
@@ -7,9 +6,6 @@ import { Ignore } from 'ignore';
 import * as path from "path";
 
 const FUNC_KINDS: readonly vscode.SymbolKind[] = [vscode.SymbolKind.Function, vscode.SymbolKind.Method, vscode.SymbolKind.Constructor];
-
-const viz = vizInstance();
-const renderOptions = {format: "svg"};
 
 const isWindows = process.platform === 'win32';
 
@@ -110,9 +106,7 @@ export class Generator {
       progress.report({ message: `${finishedCount} / ${files.length}`, increment: 100 / files.length });
     }
 
-    const dot = this.inner.generate_dot_source();
-
-    return await viz.then(viz => viz.renderString(dot, renderOptions));
+    return this.inner.generate_dot_source();
   }
 
   async generateFuncCallGraph(uri: vscode.Uri, anchor: vscode.Position, ig: Ignore): Promise<string | null> {
@@ -156,9 +150,7 @@ export class Generator {
       this.inner.highlight(normalizedPath(item.uri.path), item.selectionRange.start);
     }
 
-    const dot = this.inner.generate_dot_source();
-
-    return await viz.then(viz => viz.renderString(dot, renderOptions));
+    return this.inner.generate_dot_source();
   }
 
   filterSymbols(symbols: vscode.DocumentSymbol[], funcs: vscode.Range[], ctx = { i: 0 }): vscode.DocumentSymbol[] {

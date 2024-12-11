@@ -60,19 +60,4 @@ const extensionConfig = {
   }
 };
 
-// Config for webview source code (to be run in a web-based context)
-/** @type WebpackConfig */
-const webviewConfig = {
-  ...baseConfig,
-  target: ['web', 'es2020'],
-  entry: './src/webview/main.ts',
-  experiments: { outputModule: true },
-  output: {
-    path: path.resolve(__dirname, 'out', 'webview'),
-    filename: 'webview.js',
-    libraryTarget: 'module',
-    chunkFormat: 'module',
-  },
-};
-
-module.exports = [ extensionConfig, webviewConfig ];
+module.exports = [ extensionConfig ];

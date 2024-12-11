@@ -1,0 +1,15 @@
+@scope (.toolbar) {
+  :scope {
+    height: 56px;
+    width: 100%;
+
+    flex-shrink: 0;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+
+    border-bottom: 1px solid rgba(0, 0, 0, 0.8);
+  }
+}

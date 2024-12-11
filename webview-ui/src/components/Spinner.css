@@ -1,0 +1,35 @@
+@scope (.spinner) {
+  :scope {
+    --size: 2em;
+    --color: #06f;
+
+    height: 100%;
+    width: 100%;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  svg {
+    width: var(--size);
+    height: var(--size);
+
+    overflow: visible;
+
+    animation: spin 0.9s linear infinite;
+  }
+
+  @keyframes spin {
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+
+  circle {
+    fill: none;
+    stroke: url(#gradient);
+    stroke-width: 4px;
+    stroke-linecap: round;
+  }
+}

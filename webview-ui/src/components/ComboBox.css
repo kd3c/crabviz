@@ -1,0 +1,84 @@
+@scope (.combo-box) {
+  :scope {
+    --height: 40px;
+    --border-radius: calc(var(--height) / 2);
+    --background-color: blue;
+    --row-height: 35px;
+    --dropdown-max-height: calc(6 * var(--row-height));
+
+    --gap: 4px;
+
+    --button-size: calc(var(--height) - var(--gap) * 2);
+    --button-border-radius: calc(var(--button-size) / 2);
+
+    display: flex;
+    justify-content: space-evenly;
+    align-items: center;
+
+    height: var(--height);
+    width: 360px;
+    border: 1px lightgray solid;
+    border-radius: var(--border-radius);
+
+    position: relative;
+  }
+
+  button {
+    height: var(--button-size);
+    width: var(--button-size);
+    border-radius: var(--button-border-radius);
+    flex-shrink: 0;
+    flex-grow: 0;
+  }
+
+  input {
+    flex-grow: 0.9;
+  }
+
+  .combo-box-selection {
+    flex-grow: 0.9;
+  }
+
+  .combo-box-dropdown {
+    width: 100%;
+    max-height: var(--dropdown-max-height);
+
+    position: absolute;
+    z-index: 999;
+    top: var(--height);
+
+    margin-top: 10px;
+
+    background-color: lightgray;
+    overflow-y: scroll;
+  }
+
+  .option {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+    align-items: flex-start;
+    gap: var(--gap);
+
+    padding: 0 var(--gap);
+
+    height: var(--row-height);
+  }
+  .option * {
+    pointer-events: none;
+  }
+  .option-h {
+    display: flex;
+    /* justify-content: space-between; */
+    align-items: center;
+    gap: 6px;
+  }
+  .option .kind {
+    /* grid-area: kind; */
+
+    border-radius: 4px;
+    background-color: darkcyan;
+    color: azure;
+    padding: 2px 4px;
+  }
+}

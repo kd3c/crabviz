@@ -35,7 +35,7 @@ impl Dot {
                     r#"
     "{id}" [id="{id}", label=<
         <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="8" CELLPADDING="4">
-        <TR><TD WIDTH="230" BORDER="0" CELLPADDING="6" HREF="{path};{id}">{title}</TD></TR>
+        <TR><TD WIDTH="230" BORDER="0" CELLPADDING="6" HREF="{path}">{title}</TD></TR>
         {cells}
         <TR><TD CELLSPACING="0" HEIGHT="1" WIDTH="1" FIXEDSIZE="TRUE" STYLE="invis"></TD></TR>
         </TABLE>
