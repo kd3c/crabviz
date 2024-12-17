@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@viz-js/viz": "^3.9.0",
+    "panzoom": "^9.4.3",
     "solid-js": "^1.8.20",
     "virtua": "^0.39.0"
   },

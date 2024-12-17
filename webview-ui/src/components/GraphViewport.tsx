@@ -1,38 +1,76 @@
 import { createEffect, onMount } from "solid-js";
+import createPanZoom from "panzoom";
 
-import { useAppContext } from "../context";
+import { useAppContext, ScaleOption } from "../context";
 
 import "./GraphViewport.css";
 
 export default function GraphViewport(svg: SVGSVGElement) {
-  const [{ selectedElem }, { setItems, setSelectedElem }] = useAppContext();
-  createEffect(() => {
-    reset();
-
-    const elem = selectedElem();
-    if (!elem) {
-      return;
-    }
-
-    if (elem.dataset.path) {
-      onSelectNode(elem);
-    } else if (elem.dataset.kind) {
-      onSelectCell(elem);
-    } else if (elem.dataset.from) {
-      onSelectEdge(elem);
-    }
-  });
+  const [{ selectedElem, scaleOpt }, { setItems, setSelectedElem }] =
+    useAppContext();
 
   let clickPoint = [0, 0];
-  const nodes = svg.querySelectorAll("g.node");
-  const edges = svg.querySelectorAll("g.edge");
+  const nodes = svg.querySelectorAll<SVGElement>("g.node");
+  const edges = svg.querySelectorAll<SVGElement>("g.edge");
+
+  setItems({
+    files: new Map(Array.from(nodes, (e) => [e.id, e])),
+    symbols: Array.from(svg.querySelectorAll<SVGElement>(".cell").values()),
+  });
 
   onMount(() => {
-    setItems({
-      files: new Map(
-        Array.from(svg.querySelectorAll<SVGElement>(".node"), (e) => [e.id, e])
-      ),
-      symbols: Array.from(svg.querySelectorAll<SVGElement>(".cell").values()),
+    const container = svg.querySelector<SVGElement>("#graph0")!;
+    const pz = createPanZoom(container, {
+      smoothScroll: false,
+      autocenter: true,
+    });
+
+    const { x, y, scale } = structuredClone(pz.getTransform());
+    const cRect = container.getBoundingClientRect();
+    const cx = cRect.x + cRect.width / 2;
+    const cy = cRect.y + cRect.height / 2;
+    const sRect = svg.getBoundingClientRect();
+
+    createEffect(() => {
+      switch (scaleOpt()) {
+        case ScaleOption.ZoomIn:
+          pz.smoothZoom(cx, cy, 2);
+          break;
+        case ScaleOption.ZoomOut:
+          pz.smoothZoom(cx, cy, 0.5);
+          break;
+        case ScaleOption.Reset:
+          pz.moveTo(x, y);
+          pz.zoomAbs(x, y, scale);
+          break;
+      }
+    });
+
+    createEffect(() => {
+      reset();
+
+      const elem = selectedElem();
+      if (!elem) {
+        return;
+      }
+
+      const eRect = elem.getBoundingClientRect();
+      if (
+        eRect.left < sRect.left ||
+        eRect.top < sRect.top ||
+        eRect.right > sRect.right ||
+        eRect.bottom > sRect.bottom
+      ) {
+        pz.centerOn(elem);
+      }
+
+      if (elem.dataset.path) {
+        onSelectNode(elem);
+      } else if (elem.dataset.kind) {
+        onSelectCell(elem);
+      } else if (elem.dataset.from) {
+        onSelectEdge(elem);
+      }
     });
   });
 

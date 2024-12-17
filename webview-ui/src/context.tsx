@@ -1,5 +1,11 @@
 import { createContext, createSignal, useContext } from "solid-js";
 
+export enum ScaleOption {
+  ZoomIn,
+  ZoomOut,
+  Reset,
+}
+
 const makeAppContext = () => {
   const [items, setItems] = createSignal<
     | {
@@ -13,9 +19,14 @@ const makeAppContext = () => {
     undefined
   );
 
+  const [scaleOpt, setScaleOpt] = createSignal<ScaleOption | undefined>(
+    undefined,
+    { equals: false }
+  );
+
   return [
-    { items, selectedElem },
-    { setItems, setSelectedElem },
+    { items, selectedElem, scaleOpt },
+    { setItems, setSelectedElem, setScaleOpt },
   ] as const;
   // `as const` forces tuple type inference
 };
