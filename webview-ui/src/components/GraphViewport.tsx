@@ -1,11 +1,18 @@
-import { createEffect, onMount } from "solid-js";
+import { createEffect, JSX, onMount } from "solid-js";
 import createPanZoom from "panzoom";
 
 import { useAppContext, ScaleOption } from "../context";
 
 import "./GraphViewport.css";
 
-export default function GraphViewport(svg: SVGSVGElement) {
+interface GraphViewportProps {
+  svg: SVGSVGElement;
+}
+
+export default function GraphViewport(props: GraphViewportProps): JSX.Element {
+  const { svg } = props;
+  console.log(svg);
+
   const [{ selectedElem, scaleOpt }, { setItems, setSelectedElem }] =
     useAppContext();
 

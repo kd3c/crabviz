@@ -1,6 +1,6 @@
 use {
     super::GraphGenerator,
-    crate::types::{
+    crate::types::lsp::{
         CallHierarchyIncomingCall, CallHierarchyOutgoingCall, DocumentSymbol, Location, Position,
     },
     std::cell::RefCell,
@@ -85,13 +85,7 @@ impl GraphGeneratorWasm {
             .add_interface_implementations(file_path, position, locations);
     }
 
-    pub fn highlight(&self, file_path: String, position: JsValue) {
-        let position = serde_wasm_bindgen::from_value::<Position>(position).unwrap();
-
-        self.inner.borrow_mut().highlight(file_path, position);
-    }
-
-    pub fn generate_dot_source(&self) -> String {
-        self.inner.borrow().generate_dot_source()
+    pub fn gen_graph(&self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self.inner.borrow().gen_graph()).unwrap()
     }
 }

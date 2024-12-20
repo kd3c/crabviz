@@ -1,6 +1,6 @@
 use {
     super::GraphGenerator,
-    crate::types::{DocumentSymbol, Position, Range, SymbolKind},
+    crate::types::lsp::{DocumentSymbol, Position, Range, SymbolKind},
 };
 
 #[test]
@@ -49,6 +49,6 @@ fn nested_function() {
         }],
     );
 
-    let dot = generator.generate_dot_source();
-    println!("{}", dot);
+    let dot = generator.gen_graph();
+    println!("{:#?}", dot);
 }

@@ -11,8 +11,7 @@ export class CallGraphPanel {
 	private readonly _extensionUri: vscode.Uri;
 	private _disposables: vscode.Disposable[] = [];
 
-	private dot: string | undefined;
-	private focusMode = false;
+	private graph: any | undefined;
 
 	public constructor(extensionUri: vscode.Uri) {
 		this._extensionUri = extensionUri;
@@ -85,9 +84,8 @@ export class CallGraphPanel {
 		}
 	}
 
-	public async showCallGraph(dot: string, focusMode: boolean) {
-		this.dot = dot;
-		this.focusMode = focusMode;
+	public async showCallGraph(graph: any) {
+		this.graph = graph;
 
 		CallGraphPanel.currentPanel = this;
 
@@ -109,14 +107,16 @@ export class CallGraphPanel {
 				<meta charset="UTF-8">
 				<meta http-equiv="Content-Security-Policy" content="script-src 'nonce-${nonce}' 'wasm-unsafe-eval'; style-src ${webview.cspSource};">
 				<script nonce="${nonce}">
+					const vscode = acquireVsCodeApi();
+
 					document.crabvizProps = {
-						dot: \`${this.dot}\`,
+						graph: ${JSON.stringify(this.graph)},
 					};
 
 					window.addEventListener(
 						"message",
 						(e) => {
-							acquireVsCodeApi().postMessage(e.data);
+							vscode.postMessage(e.data);
 						}
 					);
 				</script>

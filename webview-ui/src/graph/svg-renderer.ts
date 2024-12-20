@@ -1,10 +1,10 @@
-import { instance as vizInstance } from "@viz-js/viz";
-import { SymbolKind } from "./lsp";
+import { instance as vizInstance, Graph } from "@viz-js/viz";
+import { SymbolKind } from "../lsp";
 
 const viz = vizInstance();
 
-export async function renderSVG(dot: string): Promise<SVGSVGElement> {
-  let svg = await viz.then(viz => viz.renderSVGElement(dot));
+export async function renderSVG(graph: Graph): Promise<SVGSVGElement> {
+  let svg = await viz.then(viz => viz.renderSVGElement(graph));
   styleSVG(svg);
 
   return svg;
@@ -61,7 +61,7 @@ function styleSVG(svg: SVGSVGElement) {
   });
 
   svg.querySelectorAll("g.edge").forEach((edge) => {
-    const [_fromNode, fromCell, _toNode, toCell] = edge.id.split("-");
+    const [fromCell, toCell] = edge.id.split("-");
 
     edge.setAttribute("data-from", fromCell);
     edge.setAttribute("data-to", toCell);
@@ -75,7 +75,7 @@ function styleSVG(svg: SVGSVGElement) {
   });
 
   svg.querySelectorAll("g.edge").forEach(edge => {
-    const [_fromNode, fromCell, _toNode, toCell] = edge.id.split("-");
+    const [fromCell, toCell] = edge.id.split("-");
 
     edge.setAttribute("data-from", fromCell);
     edge.setAttribute("data-to", toCell);

@@ -86,11 +86,11 @@ export class CommandManager {
 			const generator = new Generator(root.uri, lang);
 			return generator.generateCallGraph(files.get(lang)!, progress, token);
 		})
-		.then(dot => {
+		.then(graph => {
 			if (cancelled) { return; }
 
 			const panel = new CallGraphPanel(this.context.extensionUri);
-			panel.showCallGraph(dot, false);
+			panel.showCallGraph(graph);
 		});
 	}
 
@@ -112,14 +112,14 @@ export class CommandManager {
 			const generator = new Generator(root.uri, lang);
 			return generator.generateFuncCallGraph(uri, anchor, ig);
 		})
-		.then(dot => {
-			if (!dot) {
+		.then(graph => {
+			if (!graph) {
 				vscode.window.showErrorMessage('No results');
 				return;
 			}
 
 			const panel = new CallGraphPanel(this.context.extensionUri);
-			panel.showCallGraph(dot, true);
+			panel.showCallGraph(graph);
 		});
 	}
 

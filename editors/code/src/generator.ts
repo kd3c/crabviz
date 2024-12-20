@@ -22,7 +22,7 @@ export class Generator {
     files: vscode.Uri[],
     progress: vscode.Progress<{ message?: string; increment?: number }>,
     token: vscode.CancellationToken,
-  ): Promise<string> {
+  ): Promise<any> {
     files.sort((f1, f2) => f2.path.split('/').length - f1.path.split('/').length);
 
     const funcMap = new Map<string, Set<string>>(files.map(f => [normalizedPath(f.path), new Set()]));
@@ -106,10 +106,10 @@ export class Generator {
       progress.report({ message: `${finishedCount} / ${files.length}`, increment: 100 / files.length });
     }
 
-    return this.inner.generate_dot_source();
+    return this.inner.gen_graph();
   }
 
-  async generateFuncCallGraph(uri: vscode.Uri, anchor: vscode.Position, ig: Ignore): Promise<string | null> {
+  async generateFuncCallGraph(uri: vscode.Uri, anchor: vscode.Position, ig: Ignore): Promise<any | null> {
     const files = new Map<string, VisitedFile>();
 
     let items: vscode.CallHierarchyItem[];
@@ -146,11 +146,7 @@ export class Generator {
       this.inner.add_file(normalizedPath(file.uri.path), symbols);
     }
 
-    for await (const item of items) {
-      this.inner.highlight(normalizedPath(item.uri.path), item.selectionRange.start);
-    }
-
-    return this.inner.generate_dot_source();
+    return this.inner.gen_graph();
   }
 
   filterSymbols(symbols: vscode.DocumentSymbol[], funcs: vscode.Range[], ctx = { i: 0 }): vscode.DocumentSymbol[] {

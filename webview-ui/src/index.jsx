@@ -1,10 +1,10 @@
 /* @refresh reload */
-import { render } from 'solid-js/web'
+import { render } from 'solid-js/web';
 
-import './index.css'
-import App from './App'
+import './index.css';
+import App from './App';
 
-const root = document.getElementById('root')
-const dot = document.crabvizProps.dot;
+const root = document.getElementById('root');
+const props = document.crabvizProps;
 
-render(() => <App {...dot}/>, root)
+render(() => <App {...props} />, root);

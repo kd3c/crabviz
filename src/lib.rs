@@ -1,5 +1,4 @@
 mod generator;
-mod graph;
 mod lang;
 mod types;
 

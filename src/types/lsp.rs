@@ -1,9 +1,12 @@
 //! Some Language Server Protocol types used in crabviz, copied from gluon-lang/lsp-types with some modifications.
 
-use {serde::Deserialize, serde_json::Value, serde_repr::Deserialize_repr};
+use {
+    serde::{Deserialize, Serialize},
+    serde_json::Value,
+    serde_repr::{Deserialize_repr, Serialize_repr},
+};
 
-/// A symbol kind.
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Deserialize_repr)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Deserialize_repr, Serialize_repr)]
 #[repr(u8)]
 pub enum SymbolKind {
     File = if cfg!(feature = "vscode") { 0 } else { 1 },
@@ -46,7 +49,9 @@ pub enum SymbolTag {
 
 /// Position in a text document expressed as zero-based line and character offset.
 /// A position is between two characters like an 'insert' cursor in a editor.
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Default, Deserialize, Hash)]
+#[derive(
+    Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Default, Deserialize, Hash, Serialize,
+)]
 pub struct Position {
     /// Line position in a document (zero-based).
     pub line: u32,
@@ -60,7 +65,7 @@ pub struct Position {
 
 /// A range in a text document expressed as (zero-based) start and end positions.
 /// A range is comparable to a selection in an editor. Therefore the end position is exclusive.
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Default, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Default, Deserialize, Serialize)]
 pub struct Range {
     /// The range's start position.
     pub start: Position,
