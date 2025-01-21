@@ -38,6 +38,7 @@ export const convert = (graph: Graph): viz.Graph => {
       };
     }
 
+    // find the common ancester path
     const ancestor = commonAncestorPath(
       subgraph.graphAttributes.label,
       node.dir
@@ -53,6 +54,7 @@ export const convert = (graph: Graph): viz.Graph => {
       };
     }
 
+    // find the parent path or create it
     for (let it = subgraph, name = node.dir; ; ) {
       const pathLen = it.graphAttributes.label.length;
       if (name.length === pathLen) {
@@ -60,7 +62,7 @@ export const convert = (graph: Graph): viz.Graph => {
         break;
       }
 
-      name = name.substring(pathLen, name.length);
+      name = name.substring(pathLen + 1, name.length);
 
       for (const sg of it.subgraphs) {
         if (name.startsWith(sg.graphAttributes.label)) {
@@ -100,6 +102,7 @@ export const convert = (graph: Graph): viz.Graph => {
   const graphAttributes = {
     rankdir: "LR",
     ranksep: 2.0,
+    fontsize: "16",
     fontname: "Arial",
   };
 
@@ -107,7 +110,7 @@ export const convert = (graph: Graph): viz.Graph => {
     fontsize: "16",
     fontname: "Arial",
     shape: "plaintext",
-    style: "rounded, filled",
+    style: "filled",
   };
 
   const edgeAttributes = {
@@ -126,6 +129,7 @@ export const convert = (graph: Graph): viz.Graph => {
 const file2node = (file: File): Node => {
   const [dir, name] = splitDirectory(file.path);
   const id = file.id.toString();
+
   return {
     name: id,
     attributes: {
@@ -150,26 +154,39 @@ const symbol2cell = (fileId: number, symbol: Symbol): string => {
   const text = escapeHtml(symbol.name);
   const port = `${symbol.range.start.line}_${symbol.range.start.character}`;
   const href = `HREF="${symbol.kind}"`;
-  const styles =
-    symbol.kind in
-    [
-      SymbolKind.Class,
-      SymbolKind.Enum,
-      SymbolKind.Field,
-      SymbolKind.Property,
-      SymbolKind.Struct,
-    ]
-      ? ""
-      : 'STYLE="ROUNDED"';
+
+  let icon = "";
+  switch (symbol.kind) {
+    case SymbolKind.Class:
+      icon = "C";
+      break;
+    case SymbolKind.Struct:
+      icon = "S";
+      break;
+    case SymbolKind.TypeParameter:
+      icon = "T";
+      break;
+    case SymbolKind.Field:
+      icon = "f";
+      break;
+    case SymbolKind.Property:
+      icon = "p";
+      break;
+    default:
+      break;
+  }
+  if (icon.length > 0) {
+    icon = `<B>${icon}</B>  `;
+  }
 
   if (symbol.children.length <= 0) {
-    return `<TR><TD PORT="${port}" ID="${fileId}:${port}" ${href} ${styles}>${text}</TD></TR>`;
+    return `<TR><TD PORT="${port}" ID="${fileId}:${port}" ${href}>${icon}${text}</TD></TR>`;
   }
 
   return `
     <TR><TD BORDER="0" CELLPADDING="0">
-    <TABLE ID="${fileId}:${port}" ${href} ${styles} CELLSPACING="8" CELLPADDING="4" CELLBORDER="1" BGCOLOR="green">
-    <TR><TD PORT="${port}" BORDER="0">${text}</TD></TR>
+    <TABLE ID="${fileId}:${port}" ${href} CELLSPACING="8" CELLPADDING="4" CELLBORDER="1" BGCOLOR="green">
+    <TR><TD PORT="${port}" BORDER="0">${icon}${text}</TD></TR>
     ${symbol.children.map((s) => symbol2cell(fileId, s)).join("\n")}
     </TABLE>
     </TD></TR>

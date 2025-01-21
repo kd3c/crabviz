@@ -10,11 +10,13 @@
   },
   "dependencies": {
     "@viz-js/viz": "^3.9.0",
+    "open-props": "^1.7.10",
     "panzoom": "^9.4.3",
     "solid-js": "^1.8.20",
     "virtua": "^0.39.0"
   },
   "devDependencies": {
+    "postcss-jit-props": "^1.0.15",
     "typescript": "^5.5.3",
     "vite": "^5.4.1",
     "vite-plugin-solid": "^2.10.2"
