@@ -13,7 +13,6 @@ export async function renderSVG(graph: Graph): Promise<SVGSVGElement> {
 }
 
 function styleSVG(svg: SVGSVGElement) {
-  svg.querySelector(`:scope > g#graph0 > text`)?.remove();
   svg.querySelectorAll("title").forEach((el) => el.remove());
 
   svg.querySelectorAll<SVGAElement>("a").forEach((a) => {
@@ -34,10 +33,6 @@ function styleSVG(svg: SVGSVGElement) {
 
     g.setAttribute("data-kind", `${kind}`);
     g.classList.add("cell");
-
-    if (g.children.length > 2 && g.lastElementChild?.tagName === "polygon") {
-      g.lastElementChild.remove();
-    }
 
     switch (kind) {
       case SymbolKind.MODULE:
@@ -70,7 +65,7 @@ function styleSVG(svg: SVGSVGElement) {
   });
 
   svg
-    .querySelectorAll<SVGPolygonElement>("g.node polygon")
+    .querySelectorAll<SVGPolygonElement>(":is(g.node polygon, g.cluster polygon:not(:first-of-type))")
     .forEach((polygon) => {
       const p0 = polygon.points[0];
       const p2 = polygon.points[2];
@@ -89,44 +84,6 @@ function styleSVG(svg: SVGSVGElement) {
 
     edge.setAttribute("data-from", fromCell);
     edge.setAttribute("data-to", toCell);
-
-    edge.querySelectorAll("path").forEach((path) => {
-      let newPath = path.cloneNode() as SVGElement;
-      newPath.classList.add("hover-path");
-      newPath.removeAttribute("stroke-dasharray");
-      path.parentNode!.appendChild(newPath);
-    });
-  });
-
-  svg.querySelectorAll("g.edge").forEach((edge) => {
-    const [fromCell, toCell] = edge.id.split("-");
-
-    edge.setAttribute("data-from", fromCell);
-    edge.setAttribute("data-to", toCell);
-
-    // if (this.incomings.has(toCell)) {
-    //   this.incomings.get(toCell).push(edge);
-    // } else {
-    //   this.incomings.set(toCell, [edge]);
-    // }
-
-    // if (this.outgoings.has(fromCell)) {
-    //   this.outgoings.get(fromCell).push(edge);
-    // } else {
-    //   this.outgoings.set(fromCell, [edge]);
-    // }
-
-    // if (this.nodeCells.has(fromNode)) {
-    //   this.nodeCells.get(fromNode).add(fromCell);
-    // } else {
-    //   this.nodeCells.set(fromNode, new Set([fromCell]));
-    // }
-
-    // if (this.nodeCells.has(toNode)) {
-    //   this.nodeCells.get(toNode).add(toCell);
-    // } else {
-    //   this.nodeCells.set(toNode, new Set([toCell]));
-    // }
 
     edge.querySelectorAll("path").forEach((path) => {
       let newPath = path.cloneNode() as SVGElement;

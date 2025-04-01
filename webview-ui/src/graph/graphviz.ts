@@ -5,21 +5,20 @@ import { escapeHtml, splitDirectory, commonAncestorPath } from "./utils";
 
 type Node = {
   name: string;
-  attributes: {
-    id: string;
-    label: { html: string };
-  };
+  attributes: Attributes;
   dir: string;
 };
 
 type Subgraph = {
-  name: string;
   nodes: Node[];
   subgraphs: Subgraph[];
-  graphAttributes: {
-    label: string;
-  };
+  graphAttributes: Attributes;
+  dir: string;
 };
+
+interface Attributes {
+  [name: string]: string | number | boolean | { html: string };
+}
 
 export const convert = (graph: Graph): viz.Graph => {
   const nodes = graph.files
@@ -28,35 +27,18 @@ export const convert = (graph: Graph): viz.Graph => {
 
   const subgraph = nodes.reduce<Subgraph | undefined>((subgraph, node) => {
     if (!subgraph) {
-      return {
-        name: `cluster_${node.dir}`,
-        nodes: [node],
-        subgraphs: [],
-        graphAttributes: {
-          label: node.dir,
-        },
-      };
+      return createSubgraph(node.dir, node);
     }
 
     // find the common ancester path
-    const ancestor = commonAncestorPath(
-      subgraph.graphAttributes.label,
-      node.dir
-    );
-    if (subgraph.graphAttributes.label.length !== ancestor.length) {
-      subgraph = {
-        name: `cluster_${ancestor}`,
-        nodes: [],
-        subgraphs: [subgraph],
-        graphAttributes: {
-          label: ancestor,
-        },
-      };
+    const ancestor = commonAncestorPath(subgraph.dir, node.dir);
+    if (subgraph.dir.length !== ancestor.length) {
+      subgraph = createSubgraph(ancestor, undefined, subgraph);
     }
 
     // find the parent path or create it
     for (let it = subgraph, name = node.dir; ; ) {
-      const pathLen = it.graphAttributes.label.length;
+      const pathLen = it.dir.length;
       if (name.length === pathLen) {
         subgraph.nodes.push(node);
         break;
@@ -65,20 +47,13 @@ export const convert = (graph: Graph): viz.Graph => {
       name = name.substring(pathLen + 1, name.length);
 
       for (const sg of it.subgraphs) {
-        if (name.startsWith(sg.graphAttributes.label)) {
+        if (name.startsWith(sg.dir)) {
           it = sg;
           continue;
         }
       }
 
-      it.subgraphs.push({
-        name: `cluster_${name}`,
-        nodes: [node],
-        subgraphs: [],
-        graphAttributes: {
-          label: name,
-        },
-      });
+      it.subgraphs.push(createSubgraph(name, node));
       break;
     }
 
@@ -104,6 +79,7 @@ export const convert = (graph: Graph): viz.Graph => {
     ranksep: 2.0,
     fontsize: "16",
     fontname: "Arial",
+    label: "",
   };
 
   const nodeAttributes = {
@@ -126,6 +102,29 @@ export const convert = (graph: Graph): viz.Graph => {
   };
 };
 
+const createSubgraph = (
+  dir: string,
+  node?: Node,
+  subgraph?: Subgraph
+): Subgraph => {
+  const nodes = [];
+  if (node) {
+    nodes.push(node);
+  }
+
+  return {
+    nodes,
+    subgraphs: subgraph ? [subgraph] : [],
+    graphAttributes: {
+      label: {
+        html: `<TABLE BORDER="0" BGCOLOR="lightgray" CELLSPACING="4" CELLBORDER="0"><TR><TD>${dir}</TD></TR></TABLE>`,
+      },
+      cluster: true,
+    },
+    dir,
+  };
+};
+
 const file2node = (file: File): Node => {
   const [dir, name] = splitDirectory(file.path);
   const id = file.id.toString();
@@ -136,7 +135,7 @@ const file2node = (file: File): Node => {
       id: id,
       label: {
         html: `
-          <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="8" CELLPADDING="4">
+          <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="8" CELLPADDING="4">
             <TR><TD HREF="${file.path}" WIDTH="230" BORDER="0" CELLPADDING="6">
             ${name}
             </TD></TR>
@@ -180,13 +179,13 @@ const symbol2cell = (fileId: number, symbol: Symbol): string => {
   }
 
   if (symbol.children.length <= 0) {
-    return `<TR><TD PORT="${port}" ID="${fileId}:${port}" ${href}>${icon}${text}</TD></TR>`;
+    return `<TR><TD PORT="${port}" ID="${fileId}:${port}" ${href} BGCOLOR="blue">${icon}${text}</TD></TR>`;
   }
 
   return `
-    <TR><TD BORDER="0" CELLPADDING="0">
-    <TABLE ID="${fileId}:${port}" ${href} CELLSPACING="8" CELLPADDING="4" CELLBORDER="1" BGCOLOR="green">
-    <TR><TD PORT="${port}" BORDER="0">${icon}${text}</TD></TR>
+    <TR><TD CELLPADDING="0">
+    <TABLE ID="${fileId}:${port}" ${href} BORDER="0" CELLSPACING="8" CELLPADDING="4" CELLBORDER="0" BGCOLOR="green">
+    <TR><TD PORT="${port}">${icon}${text}</TD></TR>
     ${symbol.children.map((s) => symbol2cell(fileId, s)).join("\n")}
     </TABLE>
     </TD></TR>

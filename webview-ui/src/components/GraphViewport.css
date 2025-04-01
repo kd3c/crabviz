@@ -113,6 +113,27 @@
       }
     }
 
+    .cluster {
+      polygon {
+        stroke {
+          stroke-width: 2;
+        }
+      }
+
+      rect {
+        &:hover {
+          cursor: pointer;
+        }
+
+        fill: lightgray;
+        rx: 15;
+      }
+
+      text {
+        pointer-events: none;
+      }
+    }
+
     .node {
       cursor: pointer;
 
@@ -178,7 +199,8 @@
       &.interface {
         & > rect {
           fill: var(--interface-color);
-          stroke-dasharray: 5, 3;
+          stroke-dasharray: 7, 5;
+          stroke-width: 1.6;
         }
       }
 
