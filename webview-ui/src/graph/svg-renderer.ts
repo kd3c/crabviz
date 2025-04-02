@@ -16,17 +16,16 @@ function styleSVG(svg: SVGSVGElement) {
   svg.querySelectorAll("title").forEach((el) => el.remove());
 
   svg.querySelectorAll<SVGAElement>("a").forEach((a) => {
-    const docFrag = document.createDocumentFragment();
-    docFrag.append(...a.childNodes);
-
+    const href = a.href.baseVal;
     const g = a.parentNode! as SVGElement;
-    g.replaceChild(docFrag, a);
+
+    a.replaceWith(...a.childNodes);
     g.id = g.id!.replace(/^a_/, "");
 
-    const kind = parseInt(a.href.baseVal);
+    const kind = parseInt(href);
     if (isNaN(kind)) {
       g.classList.add("title");
-      g.closest(".node")?.setAttribute("data-path", a.href.baseVal);
+      g.closest(".node")?.setAttribute("data-path", href);
 
       return;
     }
@@ -65,18 +64,20 @@ function styleSVG(svg: SVGSVGElement) {
   });
 
   svg
-    .querySelectorAll<SVGPolygonElement>(":is(g.node polygon, g.cluster polygon:not(:first-of-type))")
+    .querySelectorAll<SVGPolygonElement>("g.node polygon")
     .forEach((polygon) => {
-      const p0 = polygon.points[0];
-      const p2 = polygon.points[2];
-      const rect = document.createElementNS(namespaceURI, "rect");
-      rect.setAttribute("x", Math.min(p0.x, p2.x).toString());
-      rect.setAttribute("y", Math.min(p0.y, p2.y).toString());
-      rect.setAttribute("width", Math.abs(p0.x - p2.x).toString());
-      rect.setAttribute("height", Math.abs(p0.y - p2.y).toString());
+      polygon.parentNode!.replaceChild(polygon2rect(polygon), polygon);
+    });
 
-      const g = polygon.parentNode! as SVGElement;
-      g.replaceChild(rect, polygon);
+  svg
+    .querySelectorAll<SVGPolygonElement>(
+      "g.cluster > polygon:not(:first-of-type)"
+    )
+    .forEach((polygon) => {
+      const rect = polygon2rect(polygon);
+      rect.classList.add("cluster-label");
+
+      polygon.parentNode!.replaceChild(rect, polygon);
     });
 
   svg.querySelectorAll("g.edge").forEach((edge) => {
@@ -86,7 +87,7 @@ function styleSVG(svg: SVGSVGElement) {
     edge.setAttribute("data-to", toCell);
 
     edge.querySelectorAll("path").forEach((path) => {
-      let newPath = path.cloneNode() as SVGElement;
+      const newPath = path.cloneNode() as SVGElement;
       newPath.classList.add("hover-path");
       newPath.removeAttribute("stroke-dasharray");
       path.parentNode!.appendChild(newPath);
@@ -97,4 +98,17 @@ function styleSVG(svg: SVGSVGElement) {
   defs.innerHTML =
     '<filter id="shadow"><feDropShadow dx="0" dy="0" stdDeviation="4" flood-opacity="0.5"></filter>';
   svg.appendChild(defs);
+}
+
+function polygon2rect(polygon: SVGPolygonElement): SVGRectElement {
+  const p0 = polygon.points[0];
+  const p2 = polygon.points[2];
+
+  const rect = document.createElementNS(namespaceURI, "rect");
+  rect.setAttribute("x", Math.min(p0.x, p2.x).toString());
+  rect.setAttribute("y", Math.min(p0.y, p2.y).toString());
+  rect.setAttribute("width", Math.abs(p0.x - p2.x).toString());
+  rect.setAttribute("height", Math.abs(p0.y - p2.y).toString());
+
+  return rect;
 }

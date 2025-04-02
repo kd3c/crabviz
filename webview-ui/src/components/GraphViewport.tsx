@@ -11,14 +11,13 @@ interface GraphViewportProps {
 
 export default function GraphViewport(props: GraphViewportProps): JSX.Element {
   const { svg } = props;
-  console.log(svg);
 
   const [{ selectedElem, scaleOpt }, { setItems, setSelectedElem }] =
     useAppContext();
 
   let clickPoint = [0, 0];
-  const nodes = svg.querySelectorAll<SVGElement>("g.node");
-  const edges = svg.querySelectorAll<SVGElement>("g.edge");
+  const nodes = svg.querySelectorAll<SVGGElement>("g.node");
+  const edges = svg.querySelectorAll<SVGGElement>("g.edge");
 
   setItems({
     files: new Map(Array.from(nodes, (e) => [e.id, e])),
@@ -71,12 +70,15 @@ export default function GraphViewport(props: GraphViewportProps): JSX.Element {
         pz.centerOn(elem);
       }
 
-      if (elem.dataset.path) {
+      const classes = elem.classList;
+      if (classes.contains("node")) {
         onSelectNode(elem);
-      } else if (elem.dataset.kind) {
+      } else if (classes.contains("cell")) {
         onSelectCell(elem);
-      } else if (elem.dataset.from) {
+      } else if (classes.contains("edge")) {
         onSelectEdge(elem);
+      } else if (classes.contains("cluster-label")) {
+        onSelctCluster(elem);
       }
     });
   });
@@ -104,7 +106,8 @@ export default function GraphViewport(props: GraphViewportProps): JSX.Element {
       if (
         classes.contains("node") ||
         classes.contains("cell") ||
-        classes.contains("edge")
+        classes.contains("edge") ||
+        classes.contains("cluster-label")
       ) {
         setSelectedElem(elem);
         return;
@@ -132,11 +135,11 @@ export default function GraphViewport(props: GraphViewportProps): JSX.Element {
     edges.forEach((edge) => {
       let fade = true;
 
-      if (edge.matches(`[data-from^="${id}:"]`)) {
+      if (edge.dataset.from?.startsWith(id)) {
         edge.classList.add("outgoing");
         fade = false;
       }
-      if (edge.matches(`[data-to^="${id}:"]`)) {
+      if (edge.dataset.to?.startsWith(id)) {
         edge.classList.add("incoming");
         fade = false;
       }
@@ -176,6 +179,47 @@ export default function GraphViewport(props: GraphViewportProps): JSX.Element {
     edges.forEach((e) => {
       if (e !== edge) {
         e.classList.add("fade");
+      }
+    });
+  };
+
+  const onSelctCluster = (clusterLabel: SVGElement) => {
+    const cluster = clusterLabel.parentNode! as SVGGElement;
+    const rect = cluster.getBoundingClientRect();
+
+    const selected = new Set();
+    nodes.forEach((node) => {
+      const nRect = node.getBoundingClientRect();
+
+      if (
+        nRect.left > rect.left &&
+        nRect.right < rect.right &&
+        nRect.bottom < rect.bottom &&
+        nRect.top > rect.top
+      ) {
+        selected.add(node.id);
+      }
+    });
+
+    edges.forEach((edge) => {
+      let fade = true;
+
+      let from = edge.dataset.from!;
+      from = from.substring(0, from.indexOf(":"));
+      let to = edge.dataset.to!;
+      to = to.substring(0, to.indexOf(":"));
+
+      if (selected.has(from)) {
+        edge.classList.add("outgoing");
+        fade = false;
+      }
+      if (selected.has(to)) {
+        edge.classList.add("incoming");
+        fade = false;
+      }
+
+      if (fade) {
+        edge.classList.add("fade");
       }
     });
   };

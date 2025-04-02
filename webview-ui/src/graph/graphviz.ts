@@ -27,13 +27,15 @@ export const convert = (graph: Graph): viz.Graph => {
 
   const subgraph = nodes.reduce<Subgraph | undefined>((subgraph, node) => {
     if (!subgraph) {
-      return createSubgraph(node.dir, node);
+      const sg = createSubgraph(node.dir);
+      sg.nodes.push(node);
+      return sg;
     }
 
     // find the common ancester path
     const ancestor = commonAncestorPath(subgraph.dir, node.dir);
     if (subgraph.dir.length !== ancestor.length) {
-      subgraph = createSubgraph(ancestor, undefined, subgraph);
+      subgraph = createSubgraph(ancestor, subgraph);
     }
 
     // find the parent path or create it
@@ -53,14 +55,14 @@ export const convert = (graph: Graph): viz.Graph => {
         }
       }
 
-      it.subgraphs.push(createSubgraph(name, node));
+      const sg = createSubgraph(name);
+      sg.nodes.push(node);
+      it.subgraphs.push(sg);
       break;
     }
 
     return subgraph;
   }, undefined);
-
-  const subgraphs = subgraph ? [subgraph] : undefined;
 
   const edges = graph.relations.map((r) => {
     return {
@@ -74,46 +76,31 @@ export const convert = (graph: Graph): viz.Graph => {
     };
   });
 
-  const graphAttributes = {
-    rankdir: "LR",
-    ranksep: 2.0,
-    fontsize: "16",
-    fontname: "Arial",
-    label: "",
-  };
-
-  const nodeAttributes = {
-    fontsize: "16",
-    fontname: "Arial",
-    shape: "plaintext",
-    style: "filled",
-  };
-
-  const edgeAttributes = {
-    label: " ",
-  };
-
   return {
-    graphAttributes,
-    nodeAttributes,
-    edgeAttributes,
+    graphAttributes: {
+      rankdir: "LR",
+      ranksep: 2.0,
+      fontsize: "16",
+      fontname: "Arial",
+      label: "",
+    },
+    nodeAttributes: {
+      fontsize: "16",
+      fontname: "Arial",
+      shape: "plaintext",
+      style: "filled",
+    },
+    edgeAttributes: {
+      label: " ",
+    },
     edges,
-    subgraphs,
+    subgraphs: subgraph ? [subgraph] : undefined,
   };
 };
 
-const createSubgraph = (
-  dir: string,
-  node?: Node,
-  subgraph?: Subgraph
-): Subgraph => {
-  const nodes = [];
-  if (node) {
-    nodes.push(node);
-  }
-
+const createSubgraph = (dir: string, subgraph?: Subgraph): Subgraph => {
   return {
-    nodes,
+    nodes: [],
     subgraphs: subgraph ? [subgraph] : [],
     graphAttributes: {
       label: {

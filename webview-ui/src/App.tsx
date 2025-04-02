@@ -16,9 +16,8 @@ interface CrabvizProps {
 
 const App: Component<CrabvizProps> = (props) => {
   const { graph } = props;
-  console.log(graph);
 
-  const [svg] = createResource(async () => renderSVG(convert(graph)));
+  const [svg] = createResource(() => renderSVG(convert(graph)));
 
   return (
     <Suspense fallback={<Spinner />}>

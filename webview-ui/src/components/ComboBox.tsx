@@ -60,14 +60,15 @@ export default function ComboBox() {
 
   const jump = () => {
     const elem = selectedElem();
-    if (!elem || elem.dataset.from) {
+    if (!elem) {
       return;
     }
+    const classes = elem.classList;
 
     let file_id: string;
     let ln = 0,
       col = 0;
-    if (!elem.dataset.kind) {
+    if (classes.contains("node")) {
       file_id = elem.id;
     } else {
       let s = elem.id.split(":");
@@ -75,7 +76,6 @@ export default function ComboBox() {
       [ln, col] = s[1].split("_").map((s) => parseInt(s));
     }
 
-    elem.id.split(":");
     window.postMessage({
       command: "go to definition",
       path: items()!.files.get(file_id)!.dataset.path,
@@ -84,8 +84,10 @@ export default function ComboBox() {
     });
   };
 
-  const isSymbolSelected = () =>
-    selectedElem() && !selectedElem()?.dataset.from;
+  const isSymbolSelected = () => {
+    const classes = selectedElem()?.classList;
+    return classes?.contains("cell") || classes?.contains("node");
+  }
 
   createEffect(() => {
     if (selectedElem()) {
