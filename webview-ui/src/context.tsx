@@ -7,6 +7,8 @@ export enum ScaleOption {
 }
 
 const makeAppContext = () => {
+  const [collapse, setCollapse] = createSignal(false);
+
   const [items, setItems] = createSignal<
     | {
         files: Map<string, SVGElement>;
@@ -15,9 +17,7 @@ const makeAppContext = () => {
     | undefined
   >(undefined);
 
-  const [selectedElem, setSelectedElem] = createSignal<SVGElement | undefined>(
-    undefined
-  );
+  const [selectedElem, setSelectedElem] = createSignal<SVGElement | null>(null);
 
   const [scaleOpt, setScaleOpt] = createSignal<ScaleOption | undefined>(
     undefined,
@@ -25,8 +25,8 @@ const makeAppContext = () => {
   );
 
   return [
-    { items, selectedElem, scaleOpt },
-    { setItems, setSelectedElem, setScaleOpt },
+    { collapse, items, selectedElem, scaleOpt },
+    { setCollapse, setItems, setSelectedElem, setScaleOpt },
   ] as const;
   // `as const` forces tuple type inference
 };

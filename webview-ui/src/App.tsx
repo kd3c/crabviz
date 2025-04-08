@@ -1,35 +1,25 @@
-import { Component, Show, Suspense, createResource } from "solid-js";
+import { Component } from "solid-js";
 
 import { Graph } from "./graph/types";
-import { convert } from "./graph/graphviz";
 
 import Topbar from "./components/Topbar";
 import GraphViewport from "./components/GraphViewport";
-import Spinner from "./components/Spinner";
-import { renderSVG } from "./graph/svg-renderer";
 
 import "./App.css";
 
-interface CrabvizProps {
+const App: Component<{
   graph: Graph;
-}
-
-const App: Component<CrabvizProps> = (props) => {
-  const { graph } = props;
-
-  const [svg] = createResource(() => renderSVG(convert(graph)));
-
+  // collapse: boolean,
+}> = (props) => {
   return (
-    <Suspense fallback={<Spinner />}>
+    <>
       <div id="topbar">
         <Topbar />
       </div>
       <div id="container">
-        <Show when={svg()}>
-          <GraphViewport svg={svg()!} />
-        </Show>
+        <GraphViewport graph={props.graph} />
       </div>
-    </Suspense>
+    </>
   );
 };
 

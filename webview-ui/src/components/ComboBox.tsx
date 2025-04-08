@@ -46,9 +46,7 @@ export default function ComboBox() {
     const files = Array.from(_items.files.values(), file2option);
     const symbols = _items.symbols.map(symbol2option);
 
-    return files.concat(symbols).sort((a, b) => {
-      return a.id.localeCompare(b.id);
-    });
+    return files.concat(symbols).sort((a, b) => a.id.localeCompare(b.id));
   });
   const filtered = createMemo(() => {
     const query = value()?.toLowerCase();
@@ -87,7 +85,7 @@ export default function ComboBox() {
   const isSymbolSelected = () => {
     const classes = selectedElem()?.classList;
     return classes?.contains("cell") || classes?.contains("node");
-  }
+  };
 
   createEffect(() => {
     if (selectedElem()) {

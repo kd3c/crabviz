@@ -1,6 +1,6 @@
-import viz from "@viz-js/viz";
+import { Graph as VizGraph } from "@viz-js/viz";
 
-import { Graph, File, Symbol, SymbolKind } from "./types";
+import { Graph, File, Symbol, SymbolKind, Relation } from "./types";
 import { escapeHtml, splitDirectory, commonAncestorPath } from "./utils";
 
 type Node = {
@@ -16,14 +16,20 @@ type Subgraph = {
   dir: string;
 };
 
+type Edge = {
+  tail: string;
+  head: string;
+  attributes: Attributes;
+};
+
 interface Attributes {
   [name: string]: string | number | boolean | { html: string };
 }
 
-export const convert = (graph: Graph): viz.Graph => {
+export const convert = (graph: Graph, collapse: boolean): VizGraph => {
   const nodes = graph.files
     .sort((a, b) => a.path.localeCompare(b.path))
-    .map((f) => file2node(f));
+    .map((f) => file2node(f, collapse));
 
   const subgraph = nodes.reduce<Subgraph | undefined>((subgraph, node) => {
     if (!subgraph) {
@@ -64,18 +70,6 @@ export const convert = (graph: Graph): viz.Graph => {
     return subgraph;
   }, undefined);
 
-  const edges = graph.relations.map((r) => {
-    return {
-      tail: `${r.from.file_id}`,
-      head: `${r.to.file_id}`,
-      attributes: {
-        id: `${r.from.file_id}:${r.from.line}_${r.from.character}-${r.to.file_id}:${r.to.line}_${r.to.character}`,
-        tailport: `${r.from.line}_${r.from.character}`,
-        headport: `${r.to.line}_${r.to.character}`,
-      },
-    };
-  });
-
   return {
     graphAttributes: {
       rankdir: "LR",
@@ -91,10 +85,11 @@ export const convert = (graph: Graph): viz.Graph => {
       style: "filled",
     },
     edgeAttributes: {
+      arrowsize: "1.5",
       label: " ",
     },
-    edges,
-    subgraphs: subgraph ? [subgraph] : undefined,
+    subgraphs: subgraph ? [subgraph] : [],
+    edges: collectEdges(graph.relations, collapse),
   };
 };
 
@@ -112,7 +107,7 @@ const createSubgraph = (dir: string, subgraph?: Subgraph): Subgraph => {
   };
 };
 
-const file2node = (file: File): Node => {
+const file2node = (file: File, collapsed: boolean = false): Node => {
   const [dir, name] = splitDirectory(file.path);
   const id = file.id.toString();
 
@@ -121,7 +116,13 @@ const file2node = (file: File): Node => {
     attributes: {
       id: id,
       label: {
-        html: `
+        html: collapsed
+          ? `<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="8" CELLPADDING="4">
+            <TR><TD HREF="${file.path}" WIDTH="200" BORDER="0" CELLPADDING="6">
+            ${name}
+            </TD></TR>
+          </TABLE>`
+          : `
           <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="8" CELLPADDING="4">
             <TR><TD HREF="${file.path}" WIDTH="230" BORDER="0" CELLPADDING="6">
             ${name}
@@ -177,4 +178,40 @@ const symbol2cell = (fileId: number, symbol: Symbol): string => {
     </TABLE>
     </TD></TR>
   `;
+};
+
+export const collectEdges = (
+  relations: Relation[],
+  collapse: boolean
+): Edge[] => {
+  if (!collapse) {
+    return relations.map((r) => ({
+      tail: `${r.from.file_id}`,
+      head: `${r.to.file_id}`,
+      attributes: {
+        id: `${r.from.file_id}:${r.from.line}_${r.from.character}-${r.to.file_id}:${r.to.line}_${r.to.character}`,
+        tailport: `${r.from.line}_${r.from.character}`,
+        headport: `${r.to.line}_${r.to.character}`,
+      },
+    }));
+  }
+
+  const edges = new Map<string, Edge>();
+  relations.forEach((r) => {
+    const tail = r.from.file_id.toString();
+    const head = r.to.file_id.toString();
+
+    const id = `${tail}:-${head}:`;
+    if (!edges.get(id)) {
+      edges.set(id, {
+        tail,
+        head,
+        attributes: {
+          id,
+        },
+      });
+    }
+  });
+
+  return Array.from(edges.values());
 };
