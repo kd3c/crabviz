@@ -21,7 +21,7 @@ const Switch: Component<{
     <label class="switch" title={isChecked() ? titleChecked : title}>
       <input type="checkbox" onChange={toggle} checked={isChecked()} />
       <span class="slider">
-        <img src={isChecked() ? iconChecked : icon} class="icon" />
+        <div class="icon" innerHTML={isChecked() ? iconChecked : icon}></div>
       </span>
     </label>
   );

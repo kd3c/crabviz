@@ -1,0 +1,75 @@
+@layer components.base {
+  :where(.button) {
+    --_bg-color: #f8f8f8;
+    --_border-color: var(--blue-2);
+    --_border-radius: var(--button-border-radius);
+    --_font-size: initial;
+    --_min-height: 2.375rem;
+    --_text-color: var(--blue-4);
+
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    align-items: center;
+    background: var(--_bg-color);
+    border-radius: var(--_border-radius);
+    border: var(--border-size-1) solid var(--_border-color);
+    color: var(--_text-color);
+    display: inline-flex;
+    font-size: var(--_font-size);
+    font-weight: 700;
+    gap: var(--size-2);
+    justify-content: center;
+    min-block-size: var(--_min-height);
+    padding-block: 0.5ex;
+    padding-inline: 1.5ex;
+    text-align: center;
+    text-decoration: none;
+
+    user-select: none;
+
+    &:where([disabled]) {
+      cursor: not-allowed;
+      opacity: 0.64;
+    }
+
+    /* Element states */
+    &:where(:not([disabled])) {
+      &:where(:not(:active):hover) {
+        --_bg-color: var(--blue-0);
+      }
+
+      &:where(:active) {
+        --_bg-color: var(--blue-1);
+      }
+    }
+
+    /* Disabled */
+    &:where([disabled]) {
+      --_bg-color: var(--surface-default);
+      --_border-color: color-mix(
+        in oklch,
+        var(--text-color-2) 20%,
+        var(--surface-default)
+      );
+      --_text-color: color-mix(
+        in oklch,
+        var(--text-color-2) 40%,
+        var(--surface-default)
+      );
+    }
+
+    /* Icon */
+    &:where(:has(svg), &.icon-only) {
+      gap: 1ex;
+
+      svg {
+        max-block-size: 0.7lh;
+        color: currentColor;
+
+        * {
+          stroke: var(--_text-color);
+        }
+      }
+    }
+  }
+}

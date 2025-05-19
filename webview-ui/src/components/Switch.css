@@ -1,60 +1,61 @@
-@layer components.base {
-  :where(.switch) {
-    --height: 32px;
-    --padding: 4px;
-    --width: calc((var(--height) - var(--padding)) * 2);
-    --icon-size: calc(var(--height) - var(--padding) * 2);
+.switch {
+  --height: 32px;
+  --padding: 4px;
+  --width: calc((var(--height) - var(--padding)) * 2);
+  --icon-size: calc(var(--height) - var(--padding) * 2);
 
-    --background-color: #ccc;
-    --checked-background-color: #82C1F4;
+  --background-color: #ccc;
+  --checked-background-color: #82c1f4;
 
-    position: relative;
-    display: inline-block;
-    width: var(--width);
-    height: var(--height);
+  position: relative;
+  display: inline-block;
+  width: var(--width);
+  height: var(--height);
 
-    input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
+  input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
 
-    .slider {
+  .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--background-color);
+    border-radius: var(--width);
+    transition: 0.4s;
+    user-select: none;
+
+    .icon {
       position: absolute;
-      cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: var(--background-color);
-      border-radius: var(--width);
+      height: var(--icon-size);
+      width: var(--icon-size);
+      left: var(--padding);
+      bottom: var(--padding);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 5%;
+      background-color: white;
       transition: 0.4s;
-      user-select: none;
-
-      .icon {
-        position: absolute;
-        height: var(--icon-size);
-        width: var(--icon-size);
-        left: var(--padding);
-        bottom: var(--padding);
-        padding: 5%;
-        background-color: white;
-        transition: 0.4s;
-        border-radius: 50%;
-        pointer-events: none;
-      }
+      border-radius: 50%;
+      pointer-events: none;
     }
+  }
 
-    input:checked + .slider {
-      background-color: var(--checked-background-color);
-    }
+  input:checked + .slider {
+    background-color: var(--checked-background-color);
+  }
 
-    input:focus + .slider {
-      box-shadow: 0 0 1px var(--checked-background-color);
-    }
+  input:focus + .slider {
+    box-shadow: 0 0 1px var(--checked-background-color);
+  }
 
-    input:checked + .slider .icon {
-      transform: translateX(var(--icon-size));
-    }
+  input:checked + .slider .icon {
+    transform: translateX(var(--icon-size));
   }
 }

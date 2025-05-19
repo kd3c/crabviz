@@ -2,10 +2,11 @@ import { Component } from "solid-js";
 
 import { Graph } from "./graph/types";
 
+import "./styles/main.css";
+import "./App.css";
+
 import Topbar from "./components/Topbar";
 import GraphViewport from "./components/GraphViewport";
-
-import "./App.css";
 
 const App: Component<{
   graph: Graph;

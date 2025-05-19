@@ -9,5 +9,6 @@
   align-items: center;
   gap: 10px;
 
-  border-bottom: 1px solid rgba(0, 0, 0, 0.8);
+  border-bottom: 1px solid var(--brown-2);
+  background: var(--gray-0);
 }
