@@ -2,28 +2,12 @@
   --background-color: #f5fffa;
 
   --edge-color: #548f9e;
-  --edge-hover-color: #00bcd4;
-  --edge-incoming-color: #698b69;
-  --edge-outgoing-color: #008acd;
-  --edge-recursive-color: black;
 
-  --cell-hover-color: #e0ffff;
-  --cell-selected-color: color-mix(in srgb, var(--cell-hover-color), #bce);
-  --cell-highlight-color: bisque;
-
-  --node-color: #f4f5f1;
-  --node-content-color: black;
+  --node-bg-color: #f4f5f1;
   --node-seleted-color: red;
 
-  /* symbols */
-
-  --interface-color: #fff8dc;
-  --module-color: #ffebcd;
-  --constructor-color: #ffdab9;
-  --function-color: #e4ffb5;
-  --method-color: #deb887;
-
-  --type-color: #f4f5f1;
+  --cell-bg-color: var(--node-bg-color);
+  --cell-border-color: black;
 
   --icon-color: lightcoral;
 
@@ -43,7 +27,7 @@
     }
 
     .edge {
-      & > path {
+      & > path:not(.hover-path) {
         stroke: var(--edge-color);
         stroke-width: 3;
       }
@@ -51,24 +35,9 @@
         stroke: var(--edge-color);
         fill: var(--edge-color);
       }
-
-      &:hover {
-        & > path:not(.hover-path) {
-          stroke: var(--edge-hover-color);
-        }
-        & > polygon {
-          stroke: var(--edge-hover-color);
-          fill: var(--edge-hover-color);
-        }
-      }
-
       & > path.hover-path {
         stroke: transparent;
         stroke-width: 15;
-      }
-
-      &.fade {
-        opacity: 0.05;
       }
 
       &.impl {
@@ -81,41 +50,26 @@
         }
       }
 
+      &.fade {
+        opacity: 0.05;
+      }
+      &:hover {
+        --edge-color: #00bcd4;
+      }
       &.incoming {
-        & > path:not(.hover-path) {
-          stroke: var(--edge-incoming-color);
-        }
-        & > polygon {
-          stroke: var(--edge-incoming-color);
-          fill: var(--edge-incoming-color);
-        }
+        --edge-color: #698b69;
       }
       &.outgoing {
-        & > path:not(.hover-path) {
-          stroke: var(--edge-outgoing-color);
-        }
-        & > polygon {
-          stroke: var(--edge-outgoing-color);
-          fill: var(--edge-outgoing-color);
-        }
+        --edge-color: #008acd;
       }
-
       &.incoming.outgoing {
-        & > path:not(.hover-path) {
-          stroke: var(--edge-recursive-color);
-        }
-        & > polygon {
-          stroke: var(--edge-recursive-color);
-          fill: var(--edge-recursive-color);
-        }
+        --edge-color: black;
       }
     }
 
     .cluster {
       polygon {
-        stroke {
-          stroke-width: 2;
-        }
+        stroke-width: 1.6;
       }
 
       rect {
@@ -137,7 +91,7 @@
 
       & > rect {
         rx: 20;
-        fill: var(--node-color);
+        fill: var(--node-bg-color);
         filter: url(#shadow);
       }
       &.selected > rect {
@@ -145,40 +99,27 @@
         stroke-width: 2.25;
       }
 
-      text {
-        fill: var(--node-content-color);
-      }
-
-      .title {
-        pointer-events: none;
-
-        & > text {
-          font-weight: bold;
-        }
+      .title > text {
+        font-weight: bold;
       }
     }
 
     .cell {
-      cursor: pointer;
-
-      -webkit-user-select: none;
-      -khtml-user-select: none;
-      -moz-user-select: none;
-      -ms-user-select: none;
-      user-select: none;
-
       & > rect {
-        fill: var(--node-color);
-        stroke: black;
+        fill: var(--cell-bg-color);
+        stroke: var(--cell-border-color);
         stroke-width: 1.13;
       }
 
-      &:not(.selected):hover > rect {
-        stroke: var(--cell-hover-color);
-        filter: url(#shadow);
+      &:not(.selected):hover {
+        --cell-border-color: #e0ffff;
+
+        & > rect {
+          filter: url(#shadow);
+        }
       }
-      &.selected > rect {
-        stroke: var(--cell-selected-color);
+      &.selected {
+        --cell-border-color: color-mix(in srgb, var(--cell-hover-color), #bce);
       }
       &.highlight > rect:last-of-type {
         stroke-dasharray: 10, 3, 5, 3;
@@ -186,26 +127,34 @@
 
       /* symbols */
 
-      &:not(.type, .property) > rect {
+      &:not(.type, .field, .property) > rect {
         rx: 10;
       }
 
-      &.module > rect {
-        fill: var(--module-color);
-      }
-
       &.interface {
+        --cell-bg-color: #fff8dc;
+
         & > rect {
-          fill: var(--interface-color);
           stroke-dasharray: 7, 5;
           stroke-width: 1.6;
         }
       }
 
+      &.module {
+        --cell-bg-color: #ffebcd;
+      }
+      &.constructor {
+        --cell-bg-color: #ffdab9;
+      }
+      &.function {
+        --cell-bg-color: #e4ffb5;
+      }
+      &.method {
+        --cell-bg-color: #deb887;
+      }
       &.type {
-        & > rect {
-          fill: var(--type-color);
-        }
+        --cell-bg-color: #f4f5f1;
+
         & > text {
           transform: translateY(1px);
 
@@ -213,16 +162,6 @@
             fill: var(--icon-color);
           }
         }
-      }
-
-      &.constructor > rect {
-        fill: var(--constructor-color);
-      }
-      &.function > rect {
-        fill: var(--function-color);
-      }
-      &.method > rect {
-        fill: var(--method-color);
       }
 
       &:where(.field, .property) > text {
