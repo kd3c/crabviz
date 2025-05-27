@@ -1,0 +1,13 @@
+@layer components.base {
+  :where(.popover) {
+    position: absolute;
+    top: calc(100% + 8px);
+    z-index: 100;
+    width: 100%;
+
+    padding: 6px;
+    background: var(--gray-0);
+    border: 1px solid var(--blue-1);
+    border-radius: var(--radius-3);
+  }
+}

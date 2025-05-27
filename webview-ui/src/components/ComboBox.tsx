@@ -1,18 +1,17 @@
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  Component,
-  Show,
-} from "solid-js";
-import { Dynamic } from "solid-js/web";
+import { createMemo, createSignal, Component, Show, batch } from "solid-js";
+import { Dynamic, template } from "solid-js/web";
 import { VList } from "virtua/solid";
 
-import { useAppContext } from "../context";
+import Popover from "./Popover";
 import Spinner from "./Spinner";
+
+import { useAppContext } from "../context";
 import { kindNumStr2Name } from "../lsp";
 
 import "./ComboBox.css";
+import svgSearch from "../assets/search.svg?raw";
+import svgGoto from "../assets/goto.svg?raw";
+import svgSelect from "../assets/select.svg?raw";
 
 interface IOption {
   id: string;
@@ -24,18 +23,8 @@ interface IOption {
 export default function ComboBox() {
   const [{ items, selectedElem }, { setSelectedElem }] = useAppContext();
 
-  const [searchMode, setSearchMode] = createSignal(true);
-
-  let inputRef: HTMLInputElement | undefined;
-  const [inputFocused, setInputFocused] = createSignal(false);
   const [value, setValue] = createSignal("");
-
-  const toggle = () => {
-    setSearchMode(!searchMode());
-    if (searchMode()) {
-      inputRef?.focus();
-    }
-  };
+  const [isSearching, setIsSearching] = createSignal(false);
 
   const options = createMemo(() => {
     const _items = items();
@@ -87,50 +76,47 @@ export default function ComboBox() {
     return classes?.contains("cell") || classes?.contains("node");
   };
 
-  createEffect(() => {
-    if (selectedElem()) {
-      setSearchMode(false);
-    }
-  });
-
   return (
     <div class="combo-box">
-      <button onClick={toggle} disabled={!isSymbolSelected()}>
-        S
-      </button>
-
       <Dynamic
         component={
-          !isSymbolSelected() || searchMode()
+          isSymbolSelected()
             ? () => (
-                <input
-                  ref={inputRef}
-                  type="search"
-                  onFocus={() => setInputFocused(true)}
-                  onBlur={() => setInputFocused(false)}
-                  value={value()}
-                  onInput={(e) => setValue(e.currentTarget.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      e.currentTarget.blur();
-                    }
-                  }}
-                ></input>
+                <div class="bar">
+                  <button
+                    onClick={() => setIsSearching(true)}
+                    innerHTML={svgSearch}
+                  ></button>
+                  <Option option={elem2option(selectedElem()!)} />
+                  <button onClick={jump} innerHTML={svgGoto}></button>
+                </div>
               )
             : () => (
-                <>
-                  <div class="combo-box-selection">
-                    <Option option={elem2option(selectedElem()!)} />
-                  </div>
-                  <button onClick={jump}>Go</button>
-                </>
+                <button class="select-btn" onClick={() => setIsSearching(true)}>
+                  Select files or symbols...
+                  {template(svgSelect)()}
+                </button>
               )
         }
       ></Dynamic>
 
-      <Show when={inputFocused()}>
-        <div class="combo-box-dropdown">
+      <Popover signal={[isSearching, setIsSearching]}>
+        <input
+          type="search"
+          value={value()}
+          onInput={(e) => setValue(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              batch(() => {
+                setValue("");
+                setIsSearching(false);
+              });
+            }
+          }}
+          placeholder="Search files or symbols..."
+        ></input>
+
+        <div class="combo-box-selections">
           <Show when={filtered() !== undefined} fallback={<Spinner />}>
             <VList
               data={filtered()!}
@@ -144,16 +130,19 @@ export default function ComboBox() {
                 <Option
                   option={option}
                   onClick={(o) => {
-                    setSelectedElem(
-                      document.querySelector<SVGElement>(`[id="${o.id}"]`)!
-                    );
+                    batch(() => {
+                      setSelectedElem(
+                        document.querySelector<SVGElement>(`[id="${o.id}"]`)!
+                      );
+                      setIsSearching(false);
+                    });
                   }}
                 />
               )}
             </VList>
           </Show>
         </div>
-      </Show>
+      </Popover>
     </div>
   );
 }
@@ -171,15 +160,8 @@ const Option: Component<{
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => onClick && onClick(option)}
     >
-      <div class="option-h">
-        <Show when={option.kind !== null}>
-          <span class="kind">{option.kind}</span>
-        </Show>
-        <div class="label">{option.label}</div>
-      </div>
-      <Show when={option.detail !== null}>
-        <div class="detail">{option.detail}</div>
-      </Show>
+      <span class="kind">{option.kind ?? ""}</span>
+      <div class="label">{option.label}</div>
     </div>
   );
 };
@@ -195,7 +177,7 @@ const elem2option = (e: SVGElement): IOption => {
 const file2option = (e: SVGElement): IOption => {
   return {
     id: e.id,
-    label: e.querySelector(".title")!.firstElementChild!.textContent!,
+    label: e.querySelector(".title")!.firstElementChild!.textContent!.trim(),
     kind: null,
     detail: e.dataset.path!,
   };

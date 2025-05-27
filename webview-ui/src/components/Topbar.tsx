@@ -7,10 +7,10 @@ import Switch from "./Switch.tsx";
 
 import "./Topbar.css";
 
-import collapseSvg from "../assets/collapse.svg?raw";
-import expandSvg from "../assets/expand.svg?raw";
-import plusSvg from "../assets/plus.svg?raw";
-import minusSvg from "../assets/minus.svg?raw";
+import svgCollapse from "../assets/collapse.svg?raw";
+import svgExpand from "../assets/expand.svg?raw";
+import svgPlus from "../assets/plus.svg?raw";
+import svgMinus from "../assets/minus.svg?raw";
 
 const Topbar: Component = () => {
   const [{}, { setCollapse, setScaleOpt }] = useAppContext();
@@ -25,17 +25,17 @@ const Topbar: Component = () => {
         }}
         title="switch to expand files"
         titleChecked="switch to collapse files"
-        icon={collapseSvg}
-        iconChecked={expandSvg}
+        icon={svgCollapse}
+        iconChecked={svgExpand}
       />
 
       <div role="group" class="button-group">
-        <button class="button" onClick={() => setScaleOpt(ScaleOption.ZoomOut)} innerHTML={minusSvg}>
+        <button class="button" onClick={() => setScaleOpt(ScaleOption.ZoomOut)} innerHTML={svgMinus}>
         </button>
         <button class="button" onClick={() => setScaleOpt(ScaleOption.Reset)}>
           Reset
         </button>
-        <button class="button" onClick={() => setScaleOpt(ScaleOption.ZoomIn)} innerHTML={plusSvg}>
+        <button class="button" onClick={() => setScaleOpt(ScaleOption.ZoomIn)} innerHTML={svgPlus}>
         </button>
       </div>
 
