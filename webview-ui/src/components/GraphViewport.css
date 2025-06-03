@@ -122,7 +122,7 @@
         --cell-border-color: color-mix(in srgb, var(--cell-hover-color), #bce);
       }
       &.highlight > rect:last-of-type {
-        stroke-dasharray: 10, 3, 5, 3;
+        filter: url(#highlightShadow);
       }
 
       /* symbols */

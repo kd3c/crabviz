@@ -5,14 +5,18 @@ const viz = vizInstance();
 
 const namespaceURI = "http://www.w3.org/2000/svg";
 
-export async function renderSVG(graph: Graph): Promise<SVGSVGElement> {
+export type RenderOutput = {
+  svg: SVGSVGElement;
+  incomings: Map<string, SVGGElement[]>;
+  outgoings: Map<string, SVGGElement[]>;
+};
+
+export async function renderSVG(
+  graph: Graph,
+  focus: string | null
+): Promise<RenderOutput> {
   const svg = await viz.then((viz) => viz.renderSVGElement(graph));
-  styleSVG(svg);
 
-  return svg;
-}
-
-function styleSVG(svg: SVGSVGElement) {
   svg.querySelectorAll("title").forEach((el) => el.remove());
 
   svg.querySelectorAll<SVGAElement>("a").forEach((a) => {
@@ -80,7 +84,10 @@ function styleSVG(svg: SVGSVGElement) {
       polygon.parentNode!.replaceChild(rect, polygon);
     });
 
-  svg.querySelectorAll("g.edge").forEach((edge) => {
+  const incomings: Map<string, SVGGElement[]> = new Map();
+  const outgoings: Map<string, SVGGElement[]> = new Map();
+
+  svg.querySelectorAll<SVGGElement>("g.edge").forEach((edge) => {
     const [fromCell, toCell] = edge.id.split("-");
 
     edge.setAttribute("data-from", fromCell);
@@ -92,12 +99,29 @@ function styleSVG(svg: SVGSVGElement) {
       newPath.removeAttribute("stroke-dasharray");
       path.parentNode!.appendChild(newPath);
     });
+
+    if (focus) {
+      incomings.get(toCell)?.push(edge) ?? incomings.set(toCell, [edge]);
+      outgoings.get(fromCell)?.push(edge) ?? outgoings.set(fromCell, [edge]);
+    }
   });
 
   const defs = document.createElementNS(namespaceURI, "defs");
-  defs.innerHTML =
-    '<filter id="shadow"><feDropShadow dx="0" dy="0" stdDeviation="4" flood-opacity="0.5"></filter>';
+  defs.innerHTML = `<filter id="shadow"><feDropShadow dx="0" dy="0" stdDeviation="4" flood-opacity="0.5"></filter>
+    <filter id="highlightShadow" y="-30%" height="160%">
+    <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="blue" />
+    </filter>`;
   svg.appendChild(defs);
+
+  if (focus) {
+    svg.getElementById(focus).classList.add("highlight");
+  }
+
+  return {
+    svg,
+    incomings,
+    outgoings,
+  };
 }
 
 function polygon2rect(polygon: SVGPolygonElement): SVGRectElement {

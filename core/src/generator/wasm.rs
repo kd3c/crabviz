@@ -35,45 +35,45 @@ pub struct GraphGeneratorWasm {
 #[wasm_bindgen(js_class = GraphGenerator)]
 impl GraphGeneratorWasm {
     #[wasm_bindgen(constructor)]
-    pub fn new(root: String, lang: String) -> Self {
+    pub fn new(lang: String) -> Self {
         Self {
-            inner: RefCell::new(GraphGenerator::new(root, &lang)),
+            inner: RefCell::new(GraphGenerator::new(&lang)),
         }
     }
 
-    pub fn should_filter_out_file(&self, file_path: String) -> bool {
-        self.inner.borrow().should_filter_out_file(&file_path)
+    pub fn should_filter_out_file(&self, path: String) -> bool {
+        self.inner.borrow().should_filter_out_file(&path)
     }
 
-    pub fn add_file(&self, file_path: String, symbols: JsValue) -> bool {
+    pub fn add_file(&self, path: String, symbols: JsValue) -> bool {
         let symbols = serde_wasm_bindgen::from_value::<Vec<DocumentSymbol>>(symbols).unwrap();
 
-        self.inner.borrow_mut().add_file(file_path, symbols)
+        self.inner.borrow_mut().add_file(path, symbols)
     }
 
-    pub fn add_incoming_calls(&self, file_path: String, position: JsValue, calls: JsValue) {
+    pub fn add_incoming_calls(&self, path: String, position: JsValue, calls: JsValue) {
         let position = serde_wasm_bindgen::from_value::<Position>(position).unwrap();
         let calls =
             serde_wasm_bindgen::from_value::<Vec<CallHierarchyIncomingCall>>(calls).unwrap();
 
         self.inner
             .borrow_mut()
-            .add_incoming_calls(file_path, position, calls);
+            .add_incoming_calls(path, position, calls);
     }
 
-    pub fn add_outgoing_calls(&self, file_path: String, position: JsValue, calls: JsValue) {
+    pub fn add_outgoing_calls(&self, path: String, position: JsValue, calls: JsValue) {
         let position = serde_wasm_bindgen::from_value::<Position>(position).unwrap();
         let calls =
             serde_wasm_bindgen::from_value::<Vec<CallHierarchyOutgoingCall>>(calls).unwrap();
 
         self.inner
             .borrow_mut()
-            .add_outgoing_calls(file_path, position, calls);
+            .add_outgoing_calls(path, position, calls);
     }
 
     pub fn add_interface_implementations(
         &self,
-        file_path: String,
+        path: String,
         position: JsValue,
         locations: JsValue,
     ) {
@@ -82,7 +82,7 @@ impl GraphGeneratorWasm {
 
         self.inner
             .borrow_mut()
-            .add_interface_implementations(file_path, position, locations);
+            .add_interface_implementations(path, position, locations);
     }
 
     pub fn gen_graph(&self) -> JsValue {

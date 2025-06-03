@@ -9,13 +9,19 @@ const FUNC_KINDS: readonly vscode.SymbolKind[] = [vscode.SymbolKind.Function, vs
 
 const isWindows = process.platform === 'win32';
 
+export type GlobalPosition = {
+  path: string;
+  line: number;
+  character: number;
+};
+
 export class Generator {
   private root: string;
   private inner: GraphGenerator;
 
   public constructor(root: vscode.Uri, lang: string) {
     this.root = normalizedPath(root.path);
-    this.inner = new GraphGenerator(this.root, lang);
+    this.inner = new GraphGenerator(lang);
   }
 
   public async generateCallGraph(
@@ -124,8 +130,17 @@ export class Generator {
       return null;
     }
 
+    let funcPos: GlobalPosition;
     for await (const item of items) {
-      files.set(normalizedPath(item.uri.path), new VisitedFile(item.uri));
+      const itemPath = normalizedPath(item.uri.path);
+      files.set(itemPath, new VisitedFile(item.uri));
+
+      const itemStart = item.selectionRange.start;
+      funcPos = {
+        path: itemPath,
+        line: itemStart.line,
+        character: itemStart.character,
+      };
 
       await this.resolveIncomingCalls(item, files, ig);
       await this.resolveOutgoingCalls(item, files, ig);
@@ -146,7 +161,7 @@ export class Generator {
       this.inner.add_file(normalizedPath(file.uri.path), symbols);
     }
 
-    return this.inner.gen_graph();
+    return [this.inner.gen_graph(), funcPos!];
   }
 
   filterSymbols(symbols: vscode.DocumentSymbol[], funcs: vscode.Range[], ctx = { i: 0 }): vscode.DocumentSymbol[] {

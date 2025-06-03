@@ -24,8 +24,6 @@ use {
 };
 
 pub struct GraphGenerator {
-    root: String,
-
     lang: Box<dyn lang::Language>,
 
     file_id_map: HashMap<String, u32>,
@@ -36,16 +34,15 @@ pub struct GraphGenerator {
 }
 
 impl GraphGenerator {
-    pub fn new(root: String, lang: &str) -> Self {
+    pub fn new(lang: &str) -> Self {
         Self {
-            root,
+            lang: lang::language_handler(lang),
+
             file_id_map: HashMap::new(),
             files: HashMap::new(),
             incoming_calls: HashMap::new(),
             outgoing_calls: HashMap::new(),
             interfaces: HashMap::new(),
-
-            lang: lang::language_handler(lang),
         }
     }
 
@@ -57,16 +54,16 @@ impl GraphGenerator {
             .to_owned()
     }
 
-    pub fn should_filter_out_file(&self, file_path: &str) -> bool {
-        self.lang.should_filter_out_file(file_path)
+    pub fn should_filter_out_file(&self, path: &str) -> bool {
+        self.lang.should_filter_out_file(path)
     }
 
-    pub fn add_file(&mut self, file_path: String, symbols: Vec<DocumentSymbol>) -> bool {
-        if self.lang.should_filter_out_file(&file_path) {
+    pub fn add_file(&mut self, path: String, symbols: Vec<DocumentSymbol>) -> bool {
+        if self.lang.should_filter_out_file(&path) {
             return false;
         }
 
-        match self.files.entry(file_path) {
+        match self.files.entry(path) {
             Entry::Vacant(entry) => {
                 let key = entry.key().clone();
                 entry.insert(symbols);
@@ -81,31 +78,31 @@ impl GraphGenerator {
     // TODO: graph database
     pub fn add_incoming_calls(
         &mut self,
-        file_path: String,
+        path: String,
         position: Position,
         calls: Vec<CallHierarchyIncomingCall>,
     ) {
-        let location = GlobalPosition::new(self.alloc_file_id(file_path), position);
+        let location = GlobalPosition::new(self.alloc_file_id(path), position);
         self.incoming_calls.insert(location, calls);
     }
 
     pub fn add_outgoing_calls(
         &mut self,
-        file_path: String,
+        path: String,
         position: Position,
         calls: Vec<CallHierarchyOutgoingCall>,
     ) {
-        let location = GlobalPosition::new(self.alloc_file_id(file_path), position);
+        let location = GlobalPosition::new(self.alloc_file_id(path), position);
         self.outgoing_calls.insert(location, calls);
     }
 
     pub fn add_interface_implementations(
         &mut self,
-        file_path: String,
+        path: String,
         position: Position,
         locations: Vec<Location>,
     ) {
-        let location = GlobalPosition::new(self.alloc_file_id(file_path), position);
+        let location = GlobalPosition::new(self.alloc_file_id(path), position);
         let implementations = locations
             .into_iter()
             .map(|location| {

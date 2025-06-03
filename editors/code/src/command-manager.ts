@@ -112,14 +112,16 @@ export class CommandManager {
 			const generator = new Generator(root.uri, lang);
 			return generator.generateFuncCallGraph(uri, anchor, ig);
 		})
-		.then(graph => {
-			if (!graph) {
+		.then((res) => {
+			if (!res) {
 				vscode.window.showErrorMessage('No results');
 				return;
 			}
 
+			const [graph, funcPos] = res;
+
 			const panel = new CallGraphPanel(this.context.extensionUri);
-			panel.showCallGraph(graph);
+			panel.showCallGraph(graph, funcPos);
 		});
 	}
 

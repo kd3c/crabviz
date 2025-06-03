@@ -11,7 +11,7 @@ import createPanZoom from "panzoom";
 import { useAppContext, ScaleOption } from "../context";
 import { Graph } from "../graph/types";
 import { convert } from "../graph/graphviz";
-import { renderSVG } from "../graph/svg-renderer";
+import { renderSVG, RenderOutput } from "../graph/render";
 
 import Spinner from "./Spinner";
 
@@ -19,29 +19,33 @@ import "./GraphViewport.css";
 
 const GraphViewport: Component<{
   graph: Graph;
-}> = ({ graph }) => {
+  focus: string | null;
+}> = (props) => {
   const [
     { collapse, selectedElem, scaleOpt },
     { setItems, setSelectedElem, setScaleOpt },
   ] = useAppContext();
 
-  const svgCache = new Map<boolean, SVGSVGElement>();
+  const cache = new Map<boolean, RenderOutput>();
   let clickPoint = [0, 0];
 
-  const [svg] = createResource(
+  const [content] = createResource(
     // `fetcher` won't be called if the value of `source` is false, so here I change it to number
     () => (collapse() ? 1 : 2),
     async (collapse) => {
       const isCollapsed = collapse == 1;
 
-      if (!svgCache.has(isCollapsed)) {
-        const svg = await renderSVG(convert(graph, isCollapsed));
-        svgCache.set(isCollapsed, svg);
+      if (!cache.has(isCollapsed)) {
+        const output = await renderSVG(
+          convert(props.graph, isCollapsed),
+          props.focus
+        );
+        cache.set(isCollapsed, output);
 
-        svg.onmousedown = function (e) {
+        output.svg.onmousedown = function (e) {
           clickPoint = [e.pageX, e.pageY];
         };
-        svg.onmouseup = function (e) {
+        output.svg.onmouseup = function (e) {
           const delta = 6;
           const [x, y] = clickPoint;
           const diffX = Math.abs(e.pageX - x);
@@ -54,7 +58,7 @@ const GraphViewport: Component<{
 
           for (
             let elem = e.target;
-            elem && elem instanceof SVGElement && elem !== svg;
+            elem && elem instanceof SVGElement && elem !== output.svg;
             elem = elem.parentNode
           ) {
             const classes = elem.classList;
@@ -73,7 +77,7 @@ const GraphViewport: Component<{
         };
       }
 
-      return svgCache.get(isCollapsed)!;
+      return cache.get(isCollapsed)!;
     }
   );
 
@@ -83,8 +87,8 @@ const GraphViewport: Component<{
 
   onMount(() => {
     createEffect(
-      on(svg, (svg) => {
-        if (!svg) {
+      on(content, (content) => {
+        if (!content) {
           return;
         }
 
@@ -92,16 +96,16 @@ const GraphViewport: Component<{
         // if I just call `setSelectedElem(null)`, it would reset styles for the current graph because of the auto-batch feature
         resetStyles();
 
-        nodes = svg.querySelectorAll<SVGGElement>("g.node");
-        edges = svg.querySelectorAll<SVGGElement>("g.edge");
-        state = createPanZoomState(svg);
+        nodes = content.svg.querySelectorAll<SVGGElement>("g.node");
+        edges = content.svg.querySelectorAll<SVGGElement>("g.edge");
+        state = createPanZoomState(content.svg);
 
         setSelectedElem(null);
         setScaleOpt(ScaleOption.Reset);
         setItems({
           files: new Map(Array.from(nodes, (e) => [e.id, e])),
           symbols: Array.from(
-            svg.querySelectorAll<SVGElement>(".cell").values()
+            content.svg.querySelectorAll<SVGElement>(".cell").values()
           ),
         });
       })
@@ -212,24 +216,47 @@ const GraphViewport: Component<{
   function onSelectCell(cell: SVGElement) {
     const id = cell.id;
 
-    edges?.forEach((edge) => {
-      let fade = true;
-
-      if (edge.dataset.from == id.toString()) {
-        edge.classList.add("outgoing");
-        fade = false;
-      }
-      if (edge.dataset.to == id.toString()) {
-        edge.classList.add("incoming");
-        fade = false;
-      }
-
-      if (fade) {
-        edge.classList.add("fade");
-      }
-    });
+    if (props.focus) {
+      onSelectCellInFocusMode(id);
+    } else {
+      highlightEdges((edge) => [
+        edge.dataset.to == id.toString(),
+        edge.dataset.from == id.toString(),
+      ]);
+    }
 
     cell.classList.add("selected");
+  }
+
+  function onSelectCellInFocusMode(cellId: string) {
+    const highlights = [new Set<SVGGElement>(), new Set<SVGGElement>()];
+    const inout = [content()!.incomings, content()!.outgoings];
+
+    for (let i = 0; i < inout.length; ++i) {
+      const visited = new Set([cellId, props.focus!]);
+      const map = inout[i];
+      const highlightEdges = highlights[i];
+
+      for (
+        let newEdges = map.get(cellId) ?? [];
+        newEdges.length > 0;
+
+      ) {
+        newEdges = newEdges.flatMap((edge) => {
+          highlightEdges.add(edge);
+
+          const id = i == 0? edge.dataset.from!: edge.dataset.to!;
+          if (visited.has(id)) {
+            return [];
+          }
+
+          visited.add(id);
+          return map.get(id) ?? [];
+        });
+      }
+    }
+
+    highlightEdges((edge) => [highlights[0].has(edge), highlights[1].has(edge)]);
   }
 
   function onSelectEdge(edge: SVGElement) {
@@ -287,9 +314,29 @@ const GraphViewport: Component<{
     });
   }
 
+  function highlightEdges(judge: (edge: SVGGElement) => [boolean, boolean]) {
+    edges?.forEach((edge) => {
+      let fade = true;
+
+      const [incoming, outgoing] = judge(edge);
+      if (incoming) {
+        edge.classList.add("incoming");
+        fade = false;
+      }
+      if (outgoing) {
+        edge.classList.add("outgoing");
+        fade = false;
+      }
+
+      if (fade) {
+        edge.classList.add("fade");
+      }
+    });
+  }
+
   return (
     <Suspense fallback={<Spinner />}>
-      <div class="viewport">{svg()}</div>
+      <div class="viewport">{content()?.svg}</div>
     </Suspense>
   );
 };

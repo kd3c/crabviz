@@ -59,7 +59,7 @@ export enum RelationKind {
 }
 
 export interface GlobalPosition {
-  file_id: number;
+  fileId: number;
   line: number;
   character: number;
 }

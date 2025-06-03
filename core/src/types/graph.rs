@@ -57,6 +57,7 @@ pub enum RelationKind {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GlobalPosition {
     pub file_id: u32,
     pub line: u32,

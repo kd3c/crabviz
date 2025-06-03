@@ -186,10 +186,10 @@ export const collectEdges = (
 ): Edge[] => {
   if (!collapse) {
     return relations.map((r) => ({
-      tail: `${r.from.file_id}`,
-      head: `${r.to.file_id}`,
+      tail: `${r.from.fileId}`,
+      head: `${r.to.fileId}`,
       attributes: {
-        id: `${r.from.file_id}:${r.from.line}_${r.from.character}-${r.to.file_id}:${r.to.line}_${r.to.character}`,
+        id: `${r.from.fileId}:${r.from.line}_${r.from.character}-${r.to.fileId}:${r.to.line}_${r.to.character}`,
         tailport: `${r.from.line}_${r.from.character}`,
         headport: `${r.to.line}_${r.to.character}`,
       },
@@ -198,8 +198,8 @@ export const collectEdges = (
 
   const edges = new Map<string, Edge>();
   relations.forEach((r) => {
-    const tail = r.from.file_id.toString();
-    const head = r.to.file_id.toString();
+    const tail = r.from.fileId.toString();
+    const head = r.to.fileId.toString();
 
     const id = `${tail}:-${head}:`;
     if (!edges.get(id)) {

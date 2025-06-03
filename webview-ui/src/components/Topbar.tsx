@@ -1,4 +1,4 @@
-import { Component } from "solid-js";
+import { Component, Show } from "solid-js";
 
 import { useAppContext, ScaleOption } from "../context.tsx";
 
@@ -12,31 +12,39 @@ import svgExpand from "../assets/expand.svg?raw";
 import svgPlus from "../assets/plus.svg?raw";
 import svgMinus from "../assets/minus.svg?raw";
 
-const Topbar: Component = () => {
+const Topbar: Component<{ focus: boolean }> = (props) => {
   const [{}, { setCollapse, setScaleOpt }] = useAppContext();
 
   return (
     <div class="toolbar">
       <ComboBox />
 
-      <Switch
-        onChange={(isChecked) => {
-          setCollapse(!isChecked);
-        }}
-        title="switch to expand files"
-        titleChecked="switch to collapse files"
-        icon={svgCollapse}
-        iconChecked={svgExpand}
-      />
+      <Show when={!props.focus}>
+        <Switch
+          onChange={(isChecked) => {
+            setCollapse(!isChecked);
+          }}
+          title="switch to expand files"
+          titleChecked="switch to collapse files"
+          icon={svgCollapse}
+          iconChecked={svgExpand}
+        />
+      </Show>
 
       <div role="group" class="button-group">
-        <button class="button" onClick={() => setScaleOpt(ScaleOption.ZoomOut)} innerHTML={svgMinus}>
-        </button>
+        <button
+          class="button"
+          onClick={() => setScaleOpt(ScaleOption.ZoomOut)}
+          innerHTML={svgMinus}
+        ></button>
         <button class="button" onClick={() => setScaleOpt(ScaleOption.Reset)}>
           Reset
         </button>
-        <button class="button" onClick={() => setScaleOpt(ScaleOption.ZoomIn)} innerHTML={svgPlus}>
-        </button>
+        <button
+          class="button"
+          onClick={() => setScaleOpt(ScaleOption.ZoomIn)}
+          innerHTML={svgPlus}
+        ></button>
       </div>
 
       <button class="button">Save</button>

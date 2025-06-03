@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { extname } from "path";
 
+import { GlobalPosition } from './generator';
+
 export class CallGraphPanel {
 	public static readonly viewType = 'crabviz.callgraph';
 
@@ -11,7 +13,8 @@ export class CallGraphPanel {
 	private readonly _extensionUri: vscode.Uri;
 	private _disposables: vscode.Disposable[] = [];
 
-	private graph: any | undefined;
+	private graph?: any;
+	private focus: GlobalPosition | null = null;
 
 	public constructor(extensionUri: vscode.Uri) {
 		this._extensionUri = extensionUri;
@@ -84,8 +87,9 @@ export class CallGraphPanel {
 		}
 	}
 
-	public async showCallGraph(graph: any) {
+	public async showCallGraph(graph: any, focus: GlobalPosition | null = null) {
 		this.graph = graph;
+		this.focus = focus;
 
 		CallGraphPanel.currentPanel = this;
 
@@ -111,6 +115,7 @@ export class CallGraphPanel {
 
 					document.crabvizProps = {
 						graph: ${JSON.stringify(this.graph)},
+						focus: ${JSON.stringify(this.focus)},
 					};
 
 					window.addEventListener(
