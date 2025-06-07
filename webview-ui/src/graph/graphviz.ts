@@ -1,6 +1,6 @@
 import { Graph as VizGraph } from "@viz-js/viz";
 
-import { Graph, File, Symbol, SymbolKind, Relation } from "./types";
+import { Graph, File, Symbol, SymbolKind, Relation, RelationKind } from "./types";
 import { escapeHtml, splitDirectory, commonAncestorPath } from "./utils";
 
 type Node = {
@@ -192,6 +192,7 @@ export const collectEdges = (
         id: `${r.from.fileId}:${r.from.line}_${r.from.character}-${r.to.fileId}:${r.to.line}_${r.to.character}`,
         tailport: `${r.from.line}_${r.from.character}`,
         headport: `${r.to.line}_${r.to.character}`,
+        class: r.kind == RelationKind.Impl ? "impl" : "",
       },
     }));
   }
