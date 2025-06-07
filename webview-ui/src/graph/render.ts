@@ -110,6 +110,12 @@ export async function renderSVG(
   defs.innerHTML = `<filter id="shadow"><feDropShadow dx="0" dy="0" stdDeviation="4" flood-opacity="0.5"></filter>
     <filter id="highlightShadow" y="-30%" height="160%">
     <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="blue" />
+    </filter>
+    <filter id="selectShadow" y="-30%" height="160%">
+    <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="red" />
+    </filter>
+    <filter id="hoverShadow" y="-30%" height="160%">
+    <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="orange" />
     </filter>`;
   svg.appendChild(defs);
 
