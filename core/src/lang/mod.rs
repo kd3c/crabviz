@@ -26,13 +26,14 @@ pub(crate) trait Language {
 }
 
 pub struct DefaultLang;
-
 impl Language for DefaultLang {}
+
+pub(self) const DEFAULT_LANG: DefaultLang = DefaultLang {};
 
 pub(crate) fn language_handler(lang: &str) -> Box<dyn Language + Sync + Send> {
     match lang {
         "Go" => Box::new(Go),
         "Rust" => Box::new(Rust),
-        _ => Box::new(DefaultLang {}),
+        _ => Box::new(DEFAULT_LANG),
     }
 }

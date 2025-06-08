@@ -1,6 +1,9 @@
 use {
     super::Language,
-    crate::types::lsp::{DocumentSymbol, SymbolKind},
+    crate::{
+        lang::DEFAULT_LANG,
+        types::lsp::{DocumentSymbol, SymbolKind},
+    },
 };
 
 pub(crate) struct Rust;
@@ -11,7 +14,7 @@ impl Language for Rust {
             SymbolKind::Constant | SymbolKind::Field | SymbolKind::EnumMember => false,
             // any better wasys?
             SymbolKind::Module if symbol.name == "tests" => false,
-            _ => true,
+            _ => DEFAULT_LANG.filter_symbol(symbol),
         }
     }
 }
