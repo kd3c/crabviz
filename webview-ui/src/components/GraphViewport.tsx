@@ -219,9 +219,14 @@ const GraphViewport: Component<{
     if (props.focus) {
       onSelectCellInFocusMode(id);
     } else {
+      const cellIds = new Set([cell.id]);
+      cell.querySelectorAll(".cell").forEach((c) => {
+        cellIds.add(c.id);
+      });
+
       highlightEdges((edge) => [
-        edge.dataset.to == id.toString(),
-        edge.dataset.from == id.toString(),
+        cellIds.has(edge.dataset.to!),
+        cellIds.has(edge.dataset.from!),
       ]);
     }
 
