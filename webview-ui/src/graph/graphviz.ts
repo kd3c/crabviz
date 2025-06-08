@@ -1,6 +1,13 @@
 import { Graph as VizGraph } from "@viz-js/viz";
 
-import { Graph, File, Symbol, SymbolKind, Relation, RelationKind } from "./types";
+import {
+  Graph,
+  File,
+  Symbol,
+  SymbolKind,
+  Relation,
+  RelationKind,
+} from "./types";
 import { escapeHtml, splitDirectory, commonAncestorPath } from "./utils";
 
 type Node = {
@@ -10,6 +17,7 @@ type Node = {
 };
 
 type Subgraph = {
+  name: string;
   nodes: Node[];
   subgraphs: Subgraph[];
   graphAttributes: Attributes;
@@ -40,28 +48,27 @@ export const convert = (graph: Graph, collapse: boolean): VizGraph => {
 
     // find the common ancester path
     const ancestor = commonAncestorPath(subgraph.dir, node.dir);
-    if (subgraph.dir.length !== ancestor.length) {
+    if (subgraph.dir.length != ancestor.length) {
       subgraph = createSubgraph(ancestor, subgraph);
     }
 
     // find the parent path or create it
-    for (let it = subgraph, name = node.dir; ; ) {
-      const pathLen = it.dir.length;
-      if (name.length === pathLen) {
-        subgraph.nodes.push(node);
+    findAncester: for (let it = subgraph, dir = node.dir; ; ) {
+      if (dir == it.dir) {
+        it.nodes.push(node);
         break;
       }
 
-      name = name.substring(pathLen + 1, name.length);
+      dir = dir.substring(it.dir.length + 1);
 
       for (const sg of it.subgraphs) {
-        if (name.startsWith(sg.dir)) {
+        if (dir.startsWith(sg.dir)) {
           it = sg;
-          continue;
+          continue findAncester;
         }
       }
 
-      const sg = createSubgraph(name);
+      const sg = createSubgraph(dir);
       sg.nodes.push(node);
       it.subgraphs.push(sg);
       break;
@@ -93,19 +100,34 @@ export const convert = (graph: Graph, collapse: boolean): VizGraph => {
   };
 };
 
-const createSubgraph = (dir: string, subgraph?: Subgraph): Subgraph => {
-  return {
-    nodes: [],
-    subgraphs: subgraph ? [subgraph] : [],
-    graphAttributes: {
-      label: {
-        html: `<TABLE BORDER="0" BGCOLOR="lightgray" CELLSPACING="4" CELLBORDER="0"><TR><TD>${dir}</TD></TR></TABLE>`,
+const createSubgraph = (function () {
+  let count = 0;
+
+  return (dir: string, subgraph?: Subgraph): Subgraph => {
+    if (subgraph) {
+      subgraph.dir = subgraph.dir.substring(dir.length + 1);
+      subgraph.graphAttributes.label = {
+        html: `<TABLE BORDER="0" BGCOLOR="lightgray" CELLSPACING="4" CELLBORDER="0"><TR><TD>${subgraph.dir}</TD></TR></TABLE>`,
+      };
+    }
+
+    count += 1;
+
+    return {
+      name: `cluster_${count}`,
+      nodes: [],
+      subgraphs: subgraph ? [subgraph] : [],
+      graphAttributes: {
+        label: {
+          html: `<TABLE BORDER="0" BGCOLOR="lightgray" CELLSPACING="4" CELLBORDER="0"><TR><TD>${dir}</TD></TR></TABLE>`,
+        },
+        // `cluster = true` doesn't work as expected, so I have to name the subgraph `cluster_xxx`
+        // cluster: true,
       },
-      cluster: true,
-    },
-    dir,
+      dir,
+    };
   };
-};
+})();
 
 const file2node = (file: File, collapsed: boolean = false): Node => {
   const [dir, name] = splitDirectory(file.path);
