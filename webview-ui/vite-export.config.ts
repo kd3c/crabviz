@@ -1,14 +1,13 @@
 import { defineConfig } from "vite";
-import solid from "vite-plugin-solid";
 
 export default defineConfig({
-  plugins: [solid()],
   build: {
-    outDir: "../editors/code/out/webview-ui",
+    outDir: "src/assets/out",
     rollupOptions: {
+      input: {
+        svg: "src/styles/svg.css",
+      },
       output: {
-        entryFileNames: `[name].js`,
-        chunkFileNames: `[name].js`,
         assetFileNames: `[name].[ext]`,
       },
     },

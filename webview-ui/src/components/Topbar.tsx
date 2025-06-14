@@ -1,6 +1,6 @@
 import { Component, Show } from "solid-js";
 
-import { useAppContext, ScaleOption } from "../context.tsx";
+import { useAppContext, ScaleOption, ExportOption } from "../context.tsx";
 
 import ComboBox from "./ComboBox.tsx";
 import Switch from "./Switch.tsx";
@@ -13,7 +13,7 @@ import svgPlus from "../assets/plus.svg?raw";
 import svgMinus from "../assets/minus.svg?raw";
 
 const Topbar: Component<{ focus: boolean }> = (props) => {
-  const [{}, { setCollapse, setScaleOpt }] = useAppContext();
+  const [{}, { setCollapse, setScaleOpt, setExportOpt }] = useAppContext();
 
   return (
     <div class="toolbar">
@@ -47,7 +47,14 @@ const Topbar: Component<{ focus: boolean }> = (props) => {
         ></button>
       </div>
 
-      <button class="button">Save</button>
+      <button
+        class="button"
+        onClick={() => {
+          setExportOpt(ExportOption.Svg);
+        }}
+      >
+        Save
+      </button>
     </div>
   );
 };

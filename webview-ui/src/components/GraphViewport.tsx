@@ -16,13 +16,14 @@ import { renderSVG, RenderOutput } from "../graph/render";
 import Spinner from "./Spinner";
 
 import "./GraphViewport.css";
+import svgStyles from "../assets/out/svg.css?raw";
 
 const GraphViewport: Component<{
   graph: Graph;
   focus: string | null;
 }> = (props) => {
   const [
-    { collapse, selectedElem, scaleOpt },
+    { collapse, selectedElem, scaleOpt, exportOpt },
     { setItems, setSelectedElem, setScaleOpt },
   ] = useAppContext();
 
@@ -176,6 +177,26 @@ const GraphViewport: Component<{
         { defer: true }
       )
     );
+
+    createEffect(
+      on(
+        exportOpt,
+        () => {
+          const svg = content()!.svg;
+          const width = state!.width,
+            height = state!.height;
+
+          window.postMessage({
+            command: "save SVG",
+            svg: `<svg class="callgraph" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${width} ${height}">
+              <style>${svgStyles}</style>
+              ${svg.innerHTML.replaceAll("&nbsp;", "&#160;")}
+            </svg>`,
+          });
+        },
+        { defer: true }
+      )
+    );
   });
 
   function resetStyles() {
@@ -242,15 +263,11 @@ const GraphViewport: Component<{
       const map = inout[i];
       const highlightEdges = highlights[i];
 
-      for (
-        let newEdges = map.get(cellId) ?? [];
-        newEdges.length > 0;
-
-      ) {
+      for (let newEdges = map.get(cellId) ?? []; newEdges.length > 0; ) {
         newEdges = newEdges.flatMap((edge) => {
           highlightEdges.add(edge);
 
-          const id = i == 0? edge.dataset.from!: edge.dataset.to!;
+          const id = i == 0 ? edge.dataset.from! : edge.dataset.to!;
           if (visited.has(id)) {
             return [];
           }
@@ -261,7 +278,10 @@ const GraphViewport: Component<{
       }
     }
 
-    highlightEdges((edge) => [highlights[0].has(edge), highlights[1].has(edge)]);
+    highlightEdges((edge) => [
+      highlights[0].has(edge),
+      highlights[1].has(edge),
+    ]);
   }
 
   function onSelectEdge(edge: SVGElement) {
@@ -347,6 +367,9 @@ const GraphViewport: Component<{
 };
 
 function createPanZoomState(svg: SVGSVGElement) {
+  const width = svg.width.baseVal.value;
+  const height = svg.height.baseVal.value;
+
   const container = svg.querySelector<SVGElement>("#graph0")!;
   const pz = createPanZoom(container, {
     smoothScroll: false,
@@ -360,6 +383,8 @@ function createPanZoomState(svg: SVGSVGElement) {
   const sRect = svg.getBoundingClientRect();
 
   return {
+    width,
+    height,
     pz,
     scale,
     x,

@@ -6,6 +6,11 @@ export enum ScaleOption {
   Reset,
 }
 
+export enum ExportOption {
+  Svg,
+  Html
+}
+
 const makeAppContext = () => {
   const [collapse, setCollapse] = createSignal(false);
 
@@ -19,14 +24,15 @@ const makeAppContext = () => {
 
   const [selectedElem, setSelectedElem] = createSignal<SVGElement | null>(null);
 
-  const [scaleOpt, setScaleOpt] = createSignal<ScaleOption | undefined>(
-    undefined,
-    { equals: false }
-  );
+  const [scaleOpt, setScaleOpt] = createSignal(ScaleOption.Reset, {
+    equals: false,
+  });
+
+  const [exportOpt, setExportOpt] = createSignal(ExportOption.Svg, { equals: false });
 
   return [
-    { collapse, items, selectedElem, scaleOpt },
-    { setCollapse, setItems, setSelectedElem, setScaleOpt },
+    { collapse, items, selectedElem, scaleOpt, exportOpt },
+    { setCollapse, setItems, setSelectedElem, setScaleOpt, setExportOpt },
   ] as const;
   // `as const` forces tuple type inference
 };

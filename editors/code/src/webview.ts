@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { extname } from "path";
 
 import { GlobalPosition } from './generator';
 
@@ -33,11 +32,8 @@ export class CallGraphPanel {
 		this._panel.webview.onDidReceiveMessage(
 			msg => {
 				switch (msg.command) {
-					case 'save':
-						this.save();
-						break;
-					case 'save SVG':
-						this.writeFile(vscode.Uri.from(msg.uri), msg.svg);
+					case "save SVG":
+						this.save(msg.svg, "svg");
 						break;
 					case 'go to definition':
 						vscode.workspace.openTextDocument(vscode.Uri.file(msg.path))
@@ -135,37 +131,26 @@ export class CallGraphPanel {
 		`);
 	}
 
-	save() {
-		vscode.window.showSaveDialog({
-			saveLabel: "Save",
-			filters: {
-				'HTML': ['html'],
-				'SVG': ['svg'],
-			}
-		}).then(async (uri) => {
-			if (uri) {
-				switch (extname(uri.path)) {
-					case '.html': {
-						const html = await this.generateHTML();
-						this.writeFile(uri, html);
-						break;
-					}
-					case '.svg': {
-						this._panel.webview.postMessage({ command: 'export SVG', uri: uri });
-						break;
-					}
-					default: break;
+  save(content: string, ext: string) {
+    vscode.window
+      .showSaveDialog({
+        saveLabel: "Save",
+				filters: {
+					ext: [ext],
 				}
-			}
-		});
-	}
+      })
+      .then(async (uri) => {
+        if (!uri) {
+          return;
+        }
 
-	writeFile(uri: vscode.Uri, content: string) {
-		vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf8'))
-			.then(null, (reason : any) => {
-				vscode.window.showErrorMessage(`Error on writing file: ${reason}`);
-			});
-	}
+        vscode.workspace.fs
+          .writeFile(uri, Buffer.from(content, "utf8"))
+          .then(null, (reason: any) => {
+            vscode.window.showErrorMessage(`Error on writing file: ${reason}`);
+          });
+      });
+  }
 }
 
 function getNonce() {

@@ -17,6 +17,8 @@ export async function renderSVG(
 ): Promise<RenderOutput> {
   const svg = await viz.then((viz) => viz.renderSVGElement(graph));
 
+  svg.classList.add("callgraph");
+
   svg.querySelectorAll("title").forEach((el) => el.remove());
 
   svg.querySelectorAll<SVGAElement>("a").forEach((a) => {
