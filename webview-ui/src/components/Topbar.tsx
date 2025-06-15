@@ -1,9 +1,10 @@
-import { Component, Show } from "solid-js";
+import { Component, createSignal, Show } from "solid-js";
 
 import { useAppContext, ScaleOption, ExportOption } from "../context.tsx";
 
 import ComboBox from "./ComboBox.tsx";
 import Switch from "./Switch.tsx";
+import Popover from "./Popover.tsx";
 
 import "./Topbar.css";
 
@@ -15,8 +16,10 @@ import svgMinus from "../assets/minus.svg?raw";
 const Topbar: Component<{ focus: boolean }> = (props) => {
   const [{}, { setCollapse, setScaleOpt, setExportOpt }] = useAppContext();
 
+  const [showSaveOptions, setShowSaveOptions] = createSignal(false);
+
   return (
-    <div class="toolbar">
+    <div class="topbar">
       <ComboBox />
 
       <Show when={!props.focus}>
@@ -47,13 +50,22 @@ const Topbar: Component<{ focus: boolean }> = (props) => {
         ></button>
       </div>
 
-      <button
-        class="button"
-        onClick={() => {
-          setExportOpt(ExportOption.Svg);
-        }}
-      >
+      <button class="button save-btn" onClick={() => setShowSaveOptions(true)}>
         Save
+        <Popover signal={[showSaveOptions, setShowSaveOptions]}>
+          <div class="options">
+            <label>as ...</label>
+            <div>HTML</div>
+            <div
+              onClick={() => {
+                setExportOpt(ExportOption.Svg);
+                setShowSaveOptions(false);
+              }}
+            >
+              SVG
+            </div>
+          </div>
+        </Popover>
       </button>
     </div>
   );

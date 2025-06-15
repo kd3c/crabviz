@@ -21,7 +21,15 @@ const Popover: ParentComponent<{ signal: Signal<boolean> }> = (props) => {
         ></div>
       </Portal>
 
-      <div class="popover">{props.children}</div>
+      <div
+        class="popover"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+      >
+        {props.children}
+      </div>
     </Show>
   );
 };

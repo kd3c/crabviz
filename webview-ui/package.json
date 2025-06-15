@@ -12,7 +12,7 @@
     "@viz-js/viz": "^3.9.0",
     "open-props": "^1.7.10",
     "panzoom": "^9.4.3",
-    "solid-js": "^1.8.20",
+    "solid-js": "^1.9.7",
     "virtua": "^0.39.0"
   },
   "devDependencies": {

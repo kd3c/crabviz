@@ -1,6 +1,7 @@
 @layer components.base {
   :where(.button) {
-    --_bg-color: #f8f8f8;
+    --_bg-default-color: #f8f8f8;
+    --_bg-color: var(--_bg_default-color);
     --_border-color: var(--blue-2);
     --_border-radius: var(--button-border-radius);
     --_font-size: initial;
