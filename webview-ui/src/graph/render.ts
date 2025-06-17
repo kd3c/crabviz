@@ -5,16 +5,10 @@ const viz = vizInstance();
 
 const namespaceURI = "http://www.w3.org/2000/svg";
 
-export type RenderOutput = {
-  svg: SVGSVGElement;
-  incomings: Map<string, SVGGElement[]>;
-  outgoings: Map<string, SVGGElement[]>;
-};
-
 export async function renderSVG(
   graph: Graph,
   focus: string | null
-): Promise<RenderOutput> {
+): Promise<SVGSVGElement> {
   const svg = await viz.then((viz) => viz.renderSVGElement(graph));
 
   svg.classList.add("callgraph");
@@ -86,9 +80,6 @@ export async function renderSVG(
       polygon.parentNode!.replaceChild(rect, polygon);
     });
 
-  const incomings: Map<string, SVGGElement[]> = new Map();
-  const outgoings: Map<string, SVGGElement[]> = new Map();
-
   svg.querySelectorAll<SVGGElement>("g.edge").forEach((edge) => {
     const [fromCell, toCell] = edge.id.split("-");
 
@@ -101,11 +92,6 @@ export async function renderSVG(
       newPath.removeAttribute("stroke-dasharray");
       path.parentNode!.appendChild(newPath);
     });
-
-    if (focus) {
-      incomings.get(toCell)?.push(edge) ?? incomings.set(toCell, [edge]);
-      outgoings.get(fromCell)?.push(edge) ?? outgoings.set(fromCell, [edge]);
-    }
   });
 
   const defs = document.createElementNS(namespaceURI, "defs");
@@ -125,11 +111,7 @@ export async function renderSVG(
     svg.getElementById(focus).classList.add("highlight");
   }
 
-  return {
-    svg,
-    incomings,
-    outgoings,
-  };
+  return svg;
 }
 
 function polygon2rect(polygon: SVGPolygonElement): SVGRectElement {

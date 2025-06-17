@@ -35,6 +35,9 @@ export class CallGraphPanel {
 					case "save SVG":
 						this.save(msg.svg, "svg");
 						break;
+					case "save HTML":
+						this.save(msg.html, "html");
+						break;
 					case 'go to definition':
 						vscode.workspace.openTextDocument(vscode.Uri.file(msg.path))
 							.then(doc => vscode.window.showTextDocument(doc))
