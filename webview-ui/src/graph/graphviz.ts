@@ -225,7 +225,7 @@ export const collectEdges = (
     const head = r.to.fileId.toString();
 
     const cls = r.kind == RelationKind.Impl ? "impl" : "";
-    const id = `${cls}${tail}:-${head}:`;
+    const id = `${tail}:${cls}-${head}:`;
     if (!edges.get(id)) {
       edges.set(id, {
         tail,
