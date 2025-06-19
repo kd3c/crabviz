@@ -13,6 +13,7 @@
 */
 /*** Base components (no dependencies)  */
 @import "./actions/button.css";
+@import "./actions/option.css";
 
 /*** Has dependencies */
 @import "./actions/button-group.css";

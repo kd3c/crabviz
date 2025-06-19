@@ -116,14 +116,14 @@ export default function ComboBox() {
           placeholder="Search files or symbols..."
         ></input>
 
-        <div class="combo-box-selections">
+        <div class="option-list">
           <Show when={filtered() !== undefined} fallback={<Spinner />}>
             <VList
               data={filtered()!}
               style={{
                 height: `min(calc(${
                   filtered()!.length
-                } * var(--row-height)), var(--dropdown-max-height))`,
+                } * var(--option-height)), var(--dropdown-max-height))`,
               }}
             >
               {(option) => (

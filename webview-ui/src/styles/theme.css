@@ -152,4 +152,8 @@
       from var(--color-16) l var(--gray-chroma) var(--gray-lightness)
     );
   }
+
+  :where(html) {
+    --option-height: 38px;
+  }
 }

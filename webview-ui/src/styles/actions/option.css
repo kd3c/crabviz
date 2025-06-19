@@ -1,0 +1,13 @@
+@layer components.base {
+  .option {
+    padding: 0 0.75rem;
+    border-radius: 8px;
+    height: var(--option-height);
+
+    cursor: default;
+
+    &:hover {
+      background: var(--blue-0);
+    }
+  }
+}

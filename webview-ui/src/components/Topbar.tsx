@@ -53,9 +53,9 @@ const Topbar: Component<{ focus: boolean }> = (props) => {
       <button class="button save-btn" onClick={() => setShowSaveOptions(true)}>
         Save
         <Popover signal={[showSaveOptions, setShowSaveOptions]}>
-          <div class="options">
+          <div class="option-list">
             <label>as ...</label>
-            <div
+            <div class="option"
               onClick={() => {
                 setExportOpt(ExportOption.Html);
                 setShowSaveOptions(false);
@@ -63,7 +63,7 @@ const Topbar: Component<{ focus: boolean }> = (props) => {
             >
               HTML
             </div>
-            <div
+            <div class="option"
               onClick={() => {
                 setExportOpt(ExportOption.Svg);
                 setShowSaveOptions(false);
