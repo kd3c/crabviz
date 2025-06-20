@@ -1,4 +1,11 @@
-import { createMemo, createSignal, Component, Show, batch } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  Component,
+  Show,
+  batch,
+  Suspense,
+} from "solid-js";
 import { Dynamic, template } from "solid-js/web";
 import { VList } from "virtua/solid";
 
@@ -93,7 +100,7 @@ export default function ComboBox() {
               )
             : () => (
                 <button class="select-btn" onClick={() => setIsSearching(true)}>
-                  Select files or symbols...
+                  Select file or symbol...
                   {template(svgSelect)()}
                 </button>
               )
@@ -102,7 +109,7 @@ export default function ComboBox() {
 
       <Popover signal={[isSearching, setIsSearching]}>
         <input
-          type="search"
+          type="text"
           value={value()}
           onInput={(e) => setValue(e.currentTarget.value)}
           onKeyDown={(e) => {
@@ -113,34 +120,37 @@ export default function ComboBox() {
               });
             }
           }}
-          placeholder="Search files or symbols..."
+          placeholder="Search file or symbol..."
         ></input>
 
         <div class="option-list">
-          <Show when={filtered() !== undefined} fallback={<Spinner />}>
-            <VList
-              data={filtered()!}
-              style={{
-                height: `min(calc(${
-                  filtered()!.length
-                } * var(--option-height)), var(--dropdown-max-height))`,
-              }}
+          <Suspense fallback={<Spinner />}>
+            <Show
+              when={filtered()?.length}
+              fallback={<div class="prompt">No result</div>}
             >
-              {(option) => (
-                <Option
-                  option={option}
-                  onClick={(o) => {
-                    batch(() => {
-                      setSelectedElem(
-                        document.querySelector<SVGElement>(`[id="${o.id}"]`)!
-                      );
-                      setIsSearching(false);
-                    });
-                  }}
-                />
-              )}
-            </VList>
-          </Show>
+              <VList
+                data={filtered()!}
+                style={{
+                  height: `calc(${filtered()!.length} * var(--option-height))`,
+                }}
+              >
+                {(option) => (
+                  <Option
+                    option={option}
+                    onClick={(o) => {
+                      batch(() => {
+                        setSelectedElem(
+                          document.querySelector<SVGElement>(`[id="${o.id}"]`)!
+                        );
+                        setIsSearching(false);
+                      });
+                    }}
+                  />
+                )}
+              </VList>
+            </Show>
+          </Suspense>
         </div>
       </Popover>
     </div>

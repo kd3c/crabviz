@@ -106,12 +106,26 @@
         width: 98%;
         padding-left: 0.8rem;
         border-radius: 0.7rem;
+        background: inherit;
+        outline: 1.5px solid var(--blue-2);
+
+        &:focus {
+          outline: 2px solid var(--blue-3) !important;
+        }
       }
 
       .option-list {
         width: 100%;
         max-height: var(--dropdown-max-height);
         overflow-y: scroll;
+
+        .prompt {
+          height: 26px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          user-select: none;
+        }
       }
     }
   }
