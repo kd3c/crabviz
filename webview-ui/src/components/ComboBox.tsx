@@ -91,11 +91,16 @@ export default function ComboBox() {
             ? () => (
                 <div class="bar">
                   <button
+                    class="button"
                     onClick={() => setIsSearching(true)}
                     innerHTML={svgSearch}
                   ></button>
                   <Option option={elem2option(selectedElem()!)} />
-                  <button onClick={jump} innerHTML={svgGoto}></button>
+                  <button
+                    class="button"
+                    onClick={jump}
+                    innerHTML={svgGoto}
+                  ></button>
                 </div>
               )
             : () => (

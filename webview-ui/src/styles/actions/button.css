@@ -66,6 +66,7 @@
       svg {
         max-block-size: 0.7lh;
         color: currentColor;
+        fill: currentColor;
 
         * {
           stroke: var(--_text-color);

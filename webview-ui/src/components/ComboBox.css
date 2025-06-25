@@ -2,21 +2,16 @@
   :where(.combo-box) {
     --height: 40px;
     --border-radius: calc(var(--height) / 2);
-    --search-bg-color: var(--blue-1);
-    --dropdown-max-height: calc(6 * var(--option-height));
 
     height: var(--height);
     width: 360px;
-    border: 1px lightgray solid;
+    border: 1px var(--blue-2) solid;
     border-radius: var(--border-radius);
 
     position: relative;
 
     button {
-      svg {
-        width: 20px;
-        height: 20px;
-      }
+      flex: 0 0 auto;
     }
 
     .select-btn {
@@ -29,6 +24,11 @@
       padding-right: 10px;
 
       background: transparent;
+
+      svg {
+        width: 20px;
+        height: 20px;
+      }
     }
 
     .option {
@@ -66,23 +66,19 @@
 
       height: 100%;
 
-      button {
-        --button-margin: 5px;
-        --button-size: calc(var(--height) - var(--button-margin) * 2);
-        --button-border-radius: calc(var(--button-size) / 2);
+      .button {
+        --_margin: 5px;
 
-        background: var(--search-bg-color);
-        border-radius: var(--button-border-radius);
+        --_min-height: calc(var(--height) - var(--_margin) * 2);
+        --_border-radius: calc(var(--_min-height) / 2);
 
-        height: var(--button-size);
-        width: var(--button-size);
-        margin: var(--button-margin);
+        width: var(--_min-height);
+        height: var(--_min-height);
+        border: 1px solid var(--blue-4);
+        margin: var(--_margin);
 
-        flex: 0 0 auto;
-
-        display: flex;
-        justify-content: center;
-        align-items: center;
+        padding-block: 0;
+        padding-inline: 0;
       }
 
       .option {
@@ -116,7 +112,7 @@
 
       .option-list {
         width: 100%;
-        max-height: var(--dropdown-max-height);
+        max-height: calc(6 * var(--option-height));
         overflow-y: scroll;
 
         .prompt {
