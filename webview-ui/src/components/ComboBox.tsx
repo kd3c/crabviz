@@ -167,7 +167,8 @@ const Option: Component<{
   onClick?: (option: IOption) => void;
 }> = (props) => {
   const option = props.option,
-    onClick = props.onClick;
+    onClick = props.onClick,
+    kind = option.kind ?? "";
 
   return (
     <div
@@ -175,7 +176,7 @@ const Option: Component<{
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => onClick && onClick(option)}
     >
-      <span class="kind">{option.kind ?? ""}</span>
+      <span class={`kind ${kind}`}>{kind}</span>
       <div class="label">{option.label}</div>
     </div>
   );

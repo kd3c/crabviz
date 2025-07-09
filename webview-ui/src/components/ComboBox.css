@@ -25,6 +25,8 @@
 
       background: transparent;
 
+      user-select: none;
+
       svg {
         width: 20px;
         height: 20px;
@@ -35,18 +37,30 @@
       display: flex;
       align-items: center;
       gap: 8px;
+      color: black;
 
       .kind {
-        border-radius: 4px;
-        background-color: darkcyan;
-        color: azure;
+        border: 1px solid #555;
+        border-radius: 9px;
+        background: #f4f5f1;
         padding: 2px 4px;
         flex-shrink: 0;
+
+        &.func {
+          background: #e4ffb5;
+        }
+        &.method {
+          background: #deb887;
+        }
+        &.interface {
+          background: #fff8dc;
+        }
       }
 
-      .kind,
       .label {
-        user-select: none;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       :where(&:has(> .kind:empty)) {

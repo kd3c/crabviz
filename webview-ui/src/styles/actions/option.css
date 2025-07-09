@@ -4,7 +4,9 @@
     border-radius: 8px;
     height: var(--option-height);
 
+    overflow: hidden;
     cursor: default;
+    user-select: none;
 
     &:hover {
       background: var(--blue-0);
