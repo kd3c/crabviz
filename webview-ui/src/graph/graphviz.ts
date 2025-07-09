@@ -4,10 +4,10 @@ import {
   Graph,
   File,
   Symbol,
-  SymbolKind,
   Relation,
   RelationKind,
 } from "./types";
+import { SymbolKind } from "../lsp";
 import { escapeHtml, splitDirectory, commonAncestorPath } from "./utils";
 
 type Node = {
@@ -166,19 +166,22 @@ const symbol2cell = (fileId: number, symbol: Symbol): string => {
 
   let icon = "";
   switch (symbol.kind) {
-    case SymbolKind.Class:
+    case SymbolKind.CLASS:
       icon = "C";
       break;
-    case SymbolKind.Struct:
+    case SymbolKind.STRUCT:
       icon = "S";
       break;
-    case SymbolKind.TypeParameter:
+    case SymbolKind.ENUM:
+      icon = "E";
+      break;
+    case SymbolKind.TYPE_PARAMETER:
       icon = "T";
       break;
-    case SymbolKind.Field:
+    case SymbolKind.FIELD:
       icon = "f";
       break;
-    case SymbolKind.Property:
+    case SymbolKind.PROPERTY:
       icon = "p";
       break;
     default:

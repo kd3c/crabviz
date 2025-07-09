@@ -55,7 +55,7 @@ export async function renderSVG(
         break;
       case SymbolKind.CLASS:
       case SymbolKind.STRUCT:
-      case SymbolKind.TYPEPARAMETER:
+      case SymbolKind.TYPE_PARAMETER:
         g.classList.add("type");
         break;
       default:

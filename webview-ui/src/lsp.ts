@@ -20,14 +20,14 @@ export enum SymbolKind {
   OBJECT,
   KEY,
   NULL,
-  ENUMMEMBER,
+  ENUM_MEMBER,
   STRUCT,
   EVENT,
   OPERATOR,
-  TYPEPARAMETER,
+  TYPE_PARAMETER,
 }
 
-export function kindNumStr2Name(kind: string): string {
+export function kindNum2Name(kind: string): string {
   switch (kind) {
     case "1": return "file";
     case "2": return "module";
@@ -50,11 +50,11 @@ export function kindNumStr2Name(kind: string): string {
     case "19": return "object";
     case "20": return "key";
     case "21": return "null";
-    case "22": return "enummember";
+    case "22": return "enum member";
     case "23": return "struct";
     case "24": return "event";
     case "25": return "operator";
-    case "26": return "typeparameter";
+    case "26": return "type parameter";
   }
 
   return "";

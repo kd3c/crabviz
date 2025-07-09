@@ -10,7 +10,7 @@ interface ExtensionManifest {
 }
 
 export function getLanguages(): Map<string, string> {
-  let m = new Map(
+  return new Map(
     vscode.extensions.all
       .map(e => <any[]>(e.packageJSON as ExtensionManifest)?.contributes?.languages)
       .filter(langs => langs)
@@ -18,6 +18,4 @@ export function getLanguages(): Map<string, string> {
       .filter(lang => (lang.aliases?.length ?? 0 > 0) && (lang.extensions?.length ?? 0 > 0))
       .flatMap<[string, string]>(lang => lang.extensions?.map((ext: string) => [ext, lang.aliases?.[0]]))
   );
-
-  return m;
 }

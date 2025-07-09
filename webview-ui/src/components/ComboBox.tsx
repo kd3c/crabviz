@@ -13,7 +13,7 @@ import Popover from "./Popover";
 import Spinner from "./Spinner";
 
 import { useAppContext } from "../context";
-import { kindNumStr2Name } from "../lsp";
+import { kindNum2Name } from "../lsp";
 
 import "./ComboBox.css";
 import svgSearch from "../assets/search.svg?raw";
@@ -202,7 +202,7 @@ const symbol2option = (e: SVGElement): IOption => {
   return {
     id: e.id,
     label: e.querySelector(":scope > text:last-of-type")!.textContent!,
-    kind: kindNumStr2Name(e.dataset.kind!),
+    kind: kindNum2Name(e.dataset.kind!),
     detail: null,
   };
 };

@@ -1,3 +1,5 @@
+import { SymbolKind } from "../lsp";
+
 export interface Graph {
   files: File[];
   relations: Relation[];
@@ -20,36 +22,6 @@ export interface Symbol {
   kind: SymbolKind;
   range: Range;
   children: Symbol[];
-}
-
-export enum SymbolKind {
-  File = 1,
-
-  Module,
-  Namespace,
-  Package,
-  Class,
-  Method,
-  Property,
-  Field,
-  Constructor,
-  Enum,
-  Interface,
-  Function,
-  Variable,
-  Constant,
-  String,
-  Number,
-  Boolean,
-  Array,
-  Object,
-  Key,
-  Null,
-  EnumMember,
-  Struct,
-  Event,
-  Operator,
-  TypeParameter,
 }
 
 export enum RelationKind {
