@@ -17,6 +17,8 @@
 
   cursor: default;
 
+  user-select: none;
+
   & > #graph0 > polygon:first-of-type {
     fill: var(--background-color);
   }
@@ -67,23 +69,29 @@
       stroke-width: 1.6;
     }
 
-    rect {
-      &:hover {
-        cursor: pointer;
-      }
-
+    .cluster-label {
+      cursor: pointer;
       fill: lightgray;
-      rx: 15;
+      rx: 18;
     }
 
     text {
       pointer-events: none;
     }
+
+    &.selected {
+      polygon {
+        stroke-width: 2.5;
+        stroke: red;
+      }
+
+      .cluster-label {
+        fill: #ff603b;
+      }
+    }
   }
 
   .node {
-    cursor: pointer;
-
     & > rect {
       rx: 20;
       fill: var(--node-bg-color);
@@ -94,8 +102,12 @@
       stroke-width: 2.25;
     }
 
-    .title > text {
-      font-weight: bold;
+    .title {
+      cursor: pointer;
+
+      & > text {
+        font-weight: bold;
+      }
     }
   }
 

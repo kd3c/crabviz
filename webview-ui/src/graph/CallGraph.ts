@@ -4,6 +4,7 @@ export class CallGraph {
   readonly svg: SVGSVGElement;
   readonly nodes: NodeListOf<SVGGElement>;
   readonly edges: NodeListOf<SVGGElement>;
+  readonly clusters: NodeListOf<SVGGElement>;
   readonly width: number;
   readonly height: number;
   panZoomState?: ReturnType<typeof this.createPanZoomState>;
@@ -18,8 +19,9 @@ export class CallGraph {
     onSelectElem?: (elem: SVGElement | null) => void
   ) {
     this.svg = svg;
-    this.nodes = svg.querySelectorAll<SVGGElement>("g.node");
-    this.edges = svg.querySelectorAll<SVGGElement>("g.edge");
+    this.nodes = svg.querySelectorAll("g.node");
+    this.edges = svg.querySelectorAll("g.edge");
+    this.clusters = svg.querySelectorAll("g.cluster");
     this.width = this.svg.width.baseVal.value;
     this.height = this.svg.height.baseVal.value;
     this.setUpInteraction(onSelectElem ?? this.onSelectElem);
@@ -112,13 +114,14 @@ export class CallGraph {
   public resetStyles() {
     this.nodes.forEach((node) => {
       node.classList.remove("selected");
-      node.querySelectorAll("g.cell.selected").forEach((elem) => {
+      node.querySelectorAll("g.selected").forEach((elem) => {
         elem.classList.remove("selected");
       });
     });
     this.edges.forEach((edge) =>
       edge.classList.remove("fade", "incoming", "outgoing", "selected")
     );
+    this.clusters.forEach((cluster) => cluster.classList.remove("selected"));
   }
 
   public smoothZoom(scale: number) {
@@ -255,6 +258,8 @@ export class CallGraph {
     const cluster = clusterLabel.parentNode! as SVGGElement;
     const rect = cluster.getBoundingClientRect();
 
+    cluster.classList.add("selected");
+
     const selected = new Set();
     this.nodes.forEach((node) => {
       const nRect = node.getBoundingClientRect();
@@ -269,32 +274,20 @@ export class CallGraph {
       }
     });
 
-    this.edges.forEach((edge) => {
-      let fade = true;
-
+    this.highlightEdges((edge) => {
       let from = edge.dataset.from!;
       let i = from.indexOf(":");
       if (i > 0) {
         from = from.substring(0, i);
       }
+
       let to = edge.dataset.to!;
       i = to.indexOf(":");
       if (i > 0) {
         to = to.substring(0, i);
       }
 
-      if (selected.has(from)) {
-        edge.classList.add("outgoing");
-        fade = false;
-      }
-      if (selected.has(to)) {
-        edge.classList.add("incoming");
-        fade = false;
-      }
-
-      if (fade) {
-        edge.classList.add("fade");
-      }
+      return [selected.has(to), selected.has(from)];
     });
   }
 

@@ -107,7 +107,7 @@ const createSubgraph = (function () {
     if (subgraph) {
       subgraph.dir = subgraph.dir.substring(dir.length + 1);
       subgraph.graphAttributes.label = {
-        html: `<TABLE BORDER="0" BGCOLOR="lightgray" CELLSPACING="4" CELLBORDER="0"><TR><TD>${subgraph.dir}</TD></TR></TABLE>`,
+        html: subgraphTitle(subgraph.dir),
       };
     }
 
@@ -119,7 +119,7 @@ const createSubgraph = (function () {
       subgraphs: subgraph ? [subgraph] : [],
       graphAttributes: {
         label: {
-          html: `<TABLE BORDER="0" BGCOLOR="lightgray" CELLSPACING="4" CELLBORDER="0"><TR><TD>${dir}</TD></TR></TABLE>`,
+          html: subgraphTitle(dir),
         },
         // `cluster = true` doesn't work as expected, so I have to name the subgraph `cluster_xxx`
         // cluster: true,
@@ -128,6 +128,10 @@ const createSubgraph = (function () {
     };
   };
 })();
+
+const subgraphTitle = (title: string): string => {
+  return `<TABLE BORDER="0" BGCOLOR="lightgray" CELLPADDING="6" CELLBORDER="0"><TR><TD>${title}</TD></TR></TABLE>`;
+}
 
 const file2node = (file: File, collapsed: boolean = false): Node => {
   const [dir, name] = splitDirectory(file.path);
