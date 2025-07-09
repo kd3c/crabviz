@@ -3,8 +3,12 @@ import { Portal } from "solid-js/web";
 
 import "./Popover.css";
 
-const Popover: ParentComponent<{ signal: Signal<boolean> }> = (props) => {
+const Popover: ParentComponent<{
+  signal: Signal<boolean>;
+  onHide?: () => void;
+}> = (props) => {
   const [show, setShow] = props.signal;
+  const onHide = props.onHide;
 
   return (
     <Show when={show()}>
@@ -17,7 +21,10 @@ const Popover: ParentComponent<{ signal: Signal<boolean> }> = (props) => {
             height: "100vh",
             width: "100vw",
           }}
-          onClick={() => setShow(false)}
+          onClick={() => {
+            onHide && onHide();
+            setShow(false);
+          }}
         ></div>
       </Portal>
 

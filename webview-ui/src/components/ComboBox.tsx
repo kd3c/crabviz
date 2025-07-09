@@ -112,7 +112,10 @@ export default function ComboBox() {
         }
       ></Dynamic>
 
-      <Popover signal={[isSearching, setIsSearching]}>
+      <Popover
+        signal={[isSearching, setIsSearching]}
+        onHide={() => setValue("")}
+      >
         <input
           type="text"
           value={value()}
@@ -148,6 +151,7 @@ export default function ComboBox() {
                         setSelectedElem(
                           document.querySelector<SVGElement>(`[id="${o.id}"]`)!
                         );
+                        setValue("");
                         setIsSearching(false);
                       });
                     }}

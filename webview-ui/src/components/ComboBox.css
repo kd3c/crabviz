@@ -116,6 +116,7 @@
         width: 98%;
         padding-left: 0.8rem;
         border-radius: 0.7rem;
+        color: black;
         background: inherit;
         outline: 1.5px solid var(--blue-2);
 
