@@ -102,12 +102,16 @@
       stroke-width: 2.25;
     }
 
-    .title {
+    & > .title {
       cursor: pointer;
 
       & > text {
         font-weight: bold;
       }
+    }
+
+    &.fade {
+      opacity: 0.3;
     }
   }
 

@@ -113,7 +113,7 @@ export class CallGraph {
 
   public resetStyles() {
     this.nodes.forEach((node) => {
-      node.classList.remove("selected");
+      node.classList.remove("fade", "selected");
       node.querySelectorAll("g.selected").forEach((elem) => {
         elem.classList.remove("selected");
       });
@@ -176,24 +176,13 @@ export class CallGraph {
   onSelectNode(node: SVGElement) {
     const id = node.id;
 
-    this.edges.forEach((edge) => {
-      let fade = true;
-
-      if (edge.dataset.from?.startsWith(`${id}:`)) {
-        edge.classList.add("outgoing");
-        fade = false;
-      }
-      if (edge.dataset.to?.startsWith(`${id}:`)) {
-        edge.classList.add("incoming");
-        fade = false;
-      }
-
-      if (fade) {
-        edge.classList.add("fade");
-      }
-    });
+    this.highlightEdges((edge) => [
+      edge.dataset.to!.startsWith(`${id}:`),
+      edge.dataset.from!.startsWith(`${id}:`),
+    ]);
 
     node.classList.add("selected");
+    this.fadeOutNodes(new Set([id]));
   }
 
   onSelectCell(cell: SVGElement) {
@@ -214,6 +203,7 @@ export class CallGraph {
     }
 
     cell.classList.add("selected");
+    this.fadeOutNodes(new Set([this.getNodeId(cell.id)]));
   }
 
   onSelectCellInFocusMode(cellId: string) {
@@ -244,6 +234,8 @@ export class CallGraph {
       highlights[0].has(edge),
       highlights[1].has(edge),
     ]);
+
+    this.fadeOutNodes(new Set([this.getNodeId(cellId)]));
   }
 
   onSelectEdge(edge: SVGElement) {
@@ -260,7 +252,7 @@ export class CallGraph {
 
     cluster.classList.add("selected");
 
-    const selected = new Set();
+    const selected = new Set<string>();
     this.nodes.forEach((node) => {
       const nRect = node.getBoundingClientRect();
 
@@ -274,42 +266,53 @@ export class CallGraph {
       }
     });
 
-    this.highlightEdges((edge) => {
-      let from = edge.dataset.from!;
-      let i = from.indexOf(":");
-      if (i > 0) {
-        from = from.substring(0, i);
-      }
+    this.highlightEdges((edge) => [
+      selected.has(this.getNodeId(edge.dataset.to!)),
+      selected.has(this.getNodeId(edge.dataset.from!)),
+    ]);
 
-      let to = edge.dataset.to!;
-      i = to.indexOf(":");
-      if (i > 0) {
-        to = to.substring(0, i);
-      }
-
-      return [selected.has(to), selected.has(from)];
-    });
+    this.fadeOutNodes(selected);
   }
 
   highlightEdges(judge: (edge: SVGGElement) => [boolean, boolean]) {
     this.edges.forEach((edge) => {
-      let fade = true;
-
       const [incoming, outgoing] = judge(edge);
       if (incoming) {
         edge.classList.add("incoming");
-        fade = false;
       }
       if (outgoing) {
         edge.classList.add("outgoing");
-        fade = false;
       }
 
-      if (fade) {
+      if (!(incoming || outgoing)) {
         edge.classList.add("fade");
       }
     });
   }
-}
 
-console.log(CallGraph);
+  fadeOutNodes(kept?: Set<string>) {
+    if (!kept) {
+      kept = new Set();
+    }
+
+    this.edges.forEach((edge) => {
+      if (edge.classList.contains("fade")) {
+        return;
+      }
+
+      kept
+        .add(this.getNodeId(edge.dataset.from!))
+        .add(this.getNodeId(edge.dataset.to!));
+    });
+
+    this.nodes.forEach((node) => {
+      if (!kept.has(node.id)) {
+        node.classList.add("fade");
+      }
+    });
+  }
+
+  getNodeId(id: string): string {
+    return id.substring(0, id.indexOf(":"));
+  }
+}
