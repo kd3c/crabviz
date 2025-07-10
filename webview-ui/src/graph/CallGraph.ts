@@ -7,6 +7,7 @@ export class CallGraph {
   readonly clusters: NodeListOf<SVGGElement>;
   readonly width: number;
   readonly height: number;
+  selectedElem: SVGElement | null = null;
   panZoomState?: ReturnType<typeof this.createPanZoomState>;
 
   focus: string | null;
@@ -112,16 +113,12 @@ export class CallGraph {
   }
 
   public resetStyles() {
-    this.nodes.forEach((node) => {
-      node.classList.remove("fade", "selected");
-      node.querySelectorAll("g.selected").forEach((elem) => {
-        elem.classList.remove("selected");
-      });
-    });
+    this.selectedElem?.closest(".selected")?.classList.remove("selected");
+    this.nodes.forEach((node) => node.classList.remove("fade"));
     this.edges.forEach((edge) =>
-      edge.classList.remove("fade", "incoming", "outgoing", "selected")
+      edge.classList.remove("fade", "incoming", "outgoing")
     );
-    this.clusters.forEach((cluster) => cluster.classList.remove("selected"));
+    this.clusters.forEach((cluster) => cluster.classList.remove("fade"));
   }
 
   public smoothZoom(scale: number) {
@@ -145,6 +142,7 @@ export class CallGraph {
 
   public onSelectElem = (elem: SVGElement | null) => {
     this.resetStyles();
+    this.selectedElem = elem;
 
     if (!elem) {
       return;
@@ -244,6 +242,7 @@ export class CallGraph {
         e.classList.add("fade");
       }
     });
+    this.fadeOutNodes();
   }
 
   onSelctCluster(clusterLabel: SVGElement) {
@@ -254,14 +253,7 @@ export class CallGraph {
 
     const selected = new Set<string>();
     this.nodes.forEach((node) => {
-      const nRect = node.getBoundingClientRect();
-
-      if (
-        nRect.left > rect.left &&
-        nRect.right < rect.right &&
-        nRect.bottom < rect.bottom &&
-        nRect.top > rect.top
-      ) {
+      if (this.rectContains(rect, node.getBoundingClientRect())) {
         selected.add(node.id);
       }
     });
@@ -295,24 +287,47 @@ export class CallGraph {
       kept = new Set();
     }
 
-    this.edges.forEach((edge) => {
+    for (const edge of this.edges) {
       if (edge.classList.contains("fade")) {
-        return;
+        continue;
       }
 
       kept
         .add(this.getNodeId(edge.dataset.from!))
         .add(this.getNodeId(edge.dataset.to!));
-    });
+    }
 
-    this.nodes.forEach((node) => {
+    const clusters = new Set(this.clusters);
+
+    for (const node of this.nodes) {
       if (!kept.has(node.id)) {
         node.classList.add("fade");
+        continue;
       }
+
+      const rect = node.getBoundingClientRect();
+      for (const cluster of clusters) {
+        if (this.rectContains(cluster.getBoundingClientRect(), rect)) {
+          clusters.delete(cluster);
+        }
+      }
+    }
+
+    clusters.forEach((cluster) => {
+      cluster.classList.add("fade");
     });
   }
 
   getNodeId(id: string): string {
     return id.substring(0, id.indexOf(":"));
+  }
+
+  rectContains(rect1: DOMRect, rect2: DOMRect): boolean {
+    return (
+      rect1.left < rect2.left &&
+      rect1.right > rect2.right &&
+      rect1.bottom > rect2.bottom &&
+      rect1.top < rect2.top
+    );
   }
 }

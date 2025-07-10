@@ -89,6 +89,10 @@
         fill: #ff603b;
       }
     }
+
+    &.fade {
+      opacity: 0.2;
+    }
   }
 
   .node {
@@ -111,7 +115,7 @@
     }
 
     &.fade {
-      opacity: 0.3;
+      opacity: 0.2;
     }
   }
 
