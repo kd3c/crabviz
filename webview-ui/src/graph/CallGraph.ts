@@ -113,12 +113,24 @@ export class CallGraph {
   }
 
   public resetStyles() {
+    const g0 = this.svg.getElementById("graph0");
+    const fadedGroup = this.svg.getElementById("faded-group");
+
     this.selectedElem?.closest(".selected")?.classList.remove("selected");
-    this.nodes.forEach((node) => node.classList.remove("fade"));
-    this.edges.forEach((edge) =>
-      edge.classList.remove("fade", "incoming", "outgoing")
+    g0.querySelectorAll(":scope > .edge").forEach((edge) =>
+      edge.classList.remove("incoming", "outgoing")
     );
-    this.clusters.forEach((cluster) => cluster.classList.remove("fade"));
+
+    const firstNode = g0.querySelector(".node");
+    for (const cluster of fadedGroup.querySelectorAll(".cluster")) {
+      g0.insertBefore(cluster, firstNode);
+    }
+    for (const node of fadedGroup.querySelectorAll(".node")) {
+      g0.insertBefore(node, firstNode);
+    }
+
+    // faded edges
+    g0.append(...fadedGroup.childNodes);
   }
 
   public smoothZoom(scale: number) {
@@ -237,11 +249,12 @@ export class CallGraph {
   }
 
   onSelectEdge(edge: SVGElement) {
-    this.edges.forEach((e) => {
-      if (e !== edge) {
-        e.classList.add("fade");
-      }
-    });
+    const g0 = this.svg.getElementById("graph0");
+    const fadedGroup = this.svg.getElementById("faded-group");
+
+    fadedGroup.append(...this.edges);
+    g0.appendChild(edge);
+
     this.fadeOutNodes();
   }
 
@@ -267,7 +280,9 @@ export class CallGraph {
   }
 
   highlightEdges(judge: (edge: SVGGElement) => [boolean, boolean]) {
-    this.edges.forEach((edge) => {
+    const fadedGroup = this.svg.getElementById("faded-group");
+
+    for (const edge of this.edges) {
       const [incoming, outgoing] = judge(edge);
       if (incoming) {
         edge.classList.add("incoming");
@@ -277,18 +292,19 @@ export class CallGraph {
       }
 
       if (!(incoming || outgoing)) {
-        edge.classList.add("fade");
+        fadedGroup.appendChild(edge);
       }
-    });
+    }
   }
 
   fadeOutNodes(kept?: Set<string>) {
     if (!kept) {
       kept = new Set();
     }
+    const fadedGroup = this.svg.getElementById("faded-group");
 
     for (const edge of this.edges) {
-      if (edge.classList.contains("fade")) {
+      if (edge.parentElement === fadedGroup) {
         continue;
       }
 
@@ -301,7 +317,7 @@ export class CallGraph {
 
     for (const node of this.nodes) {
       if (!kept.has(node.id)) {
-        node.classList.add("fade");
+        fadedGroup.appendChild(node);
         continue;
       }
 
@@ -313,9 +329,7 @@ export class CallGraph {
       }
     }
 
-    clusters.forEach((cluster) => {
-      cluster.classList.add("fade");
-    });
+    fadedGroup.append(...clusters);
   }
 
   getNodeId(id: string): string {

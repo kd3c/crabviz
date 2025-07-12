@@ -19,8 +19,20 @@
 
   user-select: none;
 
-  & > #graph0 > polygon:first-of-type {
-    fill: var(--background-color);
+  & > #graph0 {
+    & > polygon:first-of-type {
+      fill: var(--background-color);
+    }
+
+    & > #faded-group {
+      & > :where(.node, .cluster) {
+        opacity: 0.2;
+      }
+
+      & > .edge {
+        opacity: 0.05;
+      }
+    }
   }
 
   .edge {
@@ -47,9 +59,6 @@
       }
     }
 
-    &.fade {
-      opacity: 0.05;
-    }
     &:hover {
       --edge-color: #00bcd4;
     }
@@ -89,10 +98,6 @@
         fill: #ff603b;
       }
     }
-
-    &.fade {
-      opacity: 0.2;
-    }
   }
 
   .node {
@@ -112,10 +117,6 @@
       & > text {
         font-weight: bold;
       }
-    }
-
-    &.fade {
-      opacity: 0.2;
     }
   }
 
