@@ -1,5 +1,5 @@
-import cssSvgStyle from "../assets/out/style.css?raw";
-import jsCallGraph from "../assets/out/callgraph.js?raw";
+import cssSvgStyle from "../assets/out/index.css?raw";
+import jsCallGraph from "../assets/out/index.js?raw";
 
 export function svg(svgContent: string, width: number, height: number): string {
   return `
@@ -33,7 +33,7 @@ export function html(
     ${svgContent}
   </svg>
 
-  <script>
+  <script type="module">
     ${jsCallGraph}
 
     const graph = new CallGraph(document.querySelector(".callgraph"), ${focus});

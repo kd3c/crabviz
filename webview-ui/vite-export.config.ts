@@ -6,17 +6,11 @@ export default defineConfig({
     keepNames: true,
   },
   build: {
-    outDir: "src/assets/out",
-    rollupOptions: {
-      input: {
-        style: "src/styles/svg.css",
-        callgraph: "src/graph/CallGraph.ts",
-      },
-      output: {
-        entryFileNames: `[name].js`,
-        chunkFileNames: `[name].js`,
-        assetFileNames: `[name].[ext]`,
-      },
+    cssCodeSplit: true,
+    lib: {
+      entry: ["src/export/index.ts"],
+      formats: ["es"],
     },
+    outDir: "src/assets/out",
   },
 });

@@ -18,7 +18,7 @@
   "devDependencies": {
     "postcss-jit-props": "^1.0.15",
     "typescript": "^5.5.3",
-    "vite": "^5.4.1",
-    "vite-plugin-solid": "^2.10.2"
+    "vite": "^7.0.6",
+    "vite-plugin-solid": "^2.11.8"
   }
 }

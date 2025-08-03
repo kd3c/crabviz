@@ -81,7 +81,7 @@
     .cluster-label {
       cursor: pointer;
       fill: lightgray;
-      rx: 18;
+      rx: 18px;
     }
 
     text {
@@ -102,7 +102,7 @@
 
   .node {
     & > rect {
-      rx: 20;
+      rx: 20px;
       fill: var(--node-bg-color);
       filter: url(#shadow);
     }
@@ -140,7 +140,7 @@
     /* symbols */
 
     &:not(.type, .field, .property) > rect {
-      rx: 10;
+      rx: 10px;
     }
 
     &.interface {
