@@ -1,12 +1,6 @@
 import { Graph as VizGraph } from "@viz-js/viz";
 
-import {
-  Graph,
-  File,
-  Symbol,
-  Relation,
-  RelationKind,
-} from "./types";
+import { Graph, File, Symbol, Relation, RelationKind } from "./types";
 import { SymbolKind } from "../lsp";
 import { escapeHtml, splitDirectory, commonAncestorPath } from "./utils";
 
@@ -131,7 +125,7 @@ const createSubgraph = (function () {
 
 const subgraphTitle = (title: string): string => {
   return `<TABLE BORDER="0" BGCOLOR="lightgray" CELLPADDING="6" CELLBORDER="0"><TR><TD>${title}</TD></TR></TABLE>`;
-}
+};
 
 const file2node = (file: File, collapsed: boolean = false): Node => {
   const [dir, name] = splitDirectory(file.path);
@@ -140,9 +134,9 @@ const file2node = (file: File, collapsed: boolean = false): Node => {
   return {
     name: id,
     attributes: {
-      id: id,
+      id,
       label: {
-        html: collapsed
+        html: collapsed || file.symbols.length <= 0
           ? `<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="8" CELLPADDING="4">
             <TR><TD HREF="${file.path}" WIDTH="200" BORDER="0" CELLPADDING="6">
             ${name}
