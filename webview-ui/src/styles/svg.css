@@ -7,7 +7,8 @@
   --node-seleted-color: red;
 
   --cell-bg-color: var(--node-bg-color);
-  --cell-border-color: black;
+  --cell-border-color: #8b9f4e;
+  --cell-text-color: #202020;
 
   --icon-color: lightcoral;
 
@@ -124,16 +125,22 @@
     & > rect {
       fill: var(--cell-bg-color);
       stroke: var(--cell-border-color);
-      stroke-width: 1.13;
+      stroke-width: 1.6;
+    }
+    & > text {
+      fill: var(--cell-text-color);
     }
 
     &.highlight > rect {
+      --cell-border-color: blue;
       filter: url(#highlightShadow);
     }
     &.selected:not(.highlight) > rect {
+      --cell-border-color: red;
       filter: url(#selectShadow);
     }
     &:not(.highlight):not(.selected):not(:has(> .cell:hover)):hover > rect {
+      --cell-border-color: orange;
       filter: url(#hoverShadow);
     }
 
@@ -145,34 +152,34 @@
 
     &.interface {
       --cell-bg-color: #fff8dc;
+      --cell-border-color: #a69348;
 
       & > rect {
         stroke-dasharray: 7, 5;
-        stroke-width: 1.6;
       }
     }
 
     &.module {
       --cell-bg-color: #ffebcd;
+      --cell-border-color: #a67e43;
     }
     &.constructor {
       --cell-bg-color: #ffdab9;
+      --cell-border-color: #a66e3c;
     }
     &.function {
       --cell-bg-color: #e4ffb5;
+      --cell-border-color: #7ea63b;
     }
     &.method {
-      --cell-bg-color: #deb887;
+      --cell-bg-color: #dec887;
+      --cell-border-color: #90772C;
     }
-    &.type {
-      --cell-bg-color: #f4f5f1;
+    &.type > text {
+      transform: translateY(1px);
 
-      & > text {
-        transform: translateY(1px);
-
-        &:first-of-type {
-          fill: var(--icon-color);
-        }
+      &:first-of-type {
+        fill: var(--icon-color);
       }
     }
 
