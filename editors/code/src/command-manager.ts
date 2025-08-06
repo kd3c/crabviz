@@ -90,7 +90,7 @@ export class CommandManager {
 			if (cancelled) { return; }
 
 			const panel = new CallGraphPanel(this.context.extensionUri);
-			panel.showCallGraph(graph);
+			panel.showCallGraph(graph, root.uri.path);
 		});
 	}
 
@@ -121,7 +121,7 @@ export class CommandManager {
 			const [graph, funcPos] = res;
 
 			const panel = new CallGraphPanel(this.context.extensionUri);
-			panel.showCallGraph(graph, funcPos);
+			panel.showCallGraph(graph, root.uri.path, funcPos);
 		});
 	}
 

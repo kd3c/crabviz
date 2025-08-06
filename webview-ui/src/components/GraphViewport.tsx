@@ -20,6 +20,7 @@ import "./GraphViewport.css";
 
 const GraphViewport: Component<{
   graph: Graph;
+  root: string;
   focus: string | null;
 }> = (props) => {
   const [
@@ -37,7 +38,7 @@ const GraphViewport: Component<{
 
       if (!cache.has(isCollapsed)) {
         const svg = await renderSVG(
-          convert(props.graph, isCollapsed),
+          convert(props.graph, props.root, isCollapsed),
           props.focus
         );
 

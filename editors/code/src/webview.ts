@@ -12,9 +12,6 @@ export class CallGraphPanel {
 	private readonly _extensionUri: vscode.Uri;
 	private _disposables: vscode.Disposable[] = [];
 
-	private graph?: any;
-	private focus: GlobalPosition | null = null;
-
 	public constructor(extensionUri: vscode.Uri) {
 		this._extensionUri = extensionUri;
 
@@ -86,24 +83,16 @@ export class CallGraphPanel {
 		}
 	}
 
-	public async showCallGraph(graph: any, focus: GlobalPosition | null = null) {
-		this.graph = graph;
-		this.focus = focus;
-
+	public showCallGraph(graph: any, root: string, focus: GlobalPosition | null = null) {
 		CallGraphPanel.currentPanel = this;
 
-		this._panel.webview.html = await this.generateHTML();
-	}
-
-	async generateHTML(): Promise<string> {
 		const nonce = getNonce();
-
 		const webview = this._panel.webview;
 		const assetsUri = vscode.Uri.joinPath(this._extensionUri, 'out', 'webview-ui');
 		const cssUri = vscode.Uri.joinPath(assetsUri, "index.css");
 		const jsUri = vscode.Uri.joinPath(assetsUri, "index.js");
 
-		return Promise.resolve(`
+		this._panel.webview.html = `
 			<!DOCTYPE html>
 			<html lang="en">
 			<head>
@@ -113,8 +102,9 @@ export class CallGraphPanel {
 					const vscode = acquireVsCodeApi();
 
 					document.crabvizProps = {
-						graph: ${JSON.stringify(this.graph)},
-						focus: ${JSON.stringify(this.focus)},
+						graph: ${JSON.stringify(graph)},
+						root: ${JSON.stringify(root)},
+						focus: ${JSON.stringify(focus)},
 					};
 
 					window.addEventListener(
@@ -131,7 +121,7 @@ export class CallGraphPanel {
 				<div id="root"></div>
 			</body>
 			</html>
-		`);
+		`;
 	}
 
   save(content: string, ext: string) {

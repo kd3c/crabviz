@@ -10,6 +10,7 @@ import GraphViewport from "./components/GraphViewport";
 
 const App: Component<{
   graph: Graph;
+  root: string;
   focus: {
     path: string;
     line: number;
@@ -30,7 +31,7 @@ const App: Component<{
         <Topbar focus={props.focus != null} />
       </div>
       <div id="container">
-        <GraphViewport graph={props.graph} focus={focus} />
+        <GraphViewport graph={props.graph} root={props.root} focus={focus} />
       </div>
     </>
   );

@@ -28,7 +28,7 @@ interface Attributes {
   [name: string]: string | number | boolean | { html: string };
 }
 
-export const convert = (graph: Graph, collapse: boolean): VizGraph => {
+export const convert = (graph: Graph, root: string, collapse: boolean): VizGraph => {
   const nodes = graph.files
     .sort((a, b) => a.path.localeCompare(b.path))
     .map((f) => file2node(f, collapse));
@@ -70,6 +70,14 @@ export const convert = (graph: Graph, collapse: boolean): VizGraph => {
 
     return subgraph;
   }, undefined);
+
+  if (subgraph) {
+    const [rootParent, _] = splitDirectory(root);
+    subgraph.dir = subgraph.dir.substring(rootParent.length + 1);
+    subgraph.graphAttributes.label = {
+      html: subgraphTitle(subgraph.dir),
+    };
+  }
 
   return {
     graphAttributes: {
@@ -136,13 +144,14 @@ const file2node = (file: File, collapsed: boolean = false): Node => {
     attributes: {
       id,
       label: {
-        html: collapsed || file.symbols.length <= 0
-          ? `<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="8" CELLPADDING="4">
+        html:
+          collapsed || file.symbols.length <= 0
+            ? `<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="8" CELLPADDING="4">
             <TR><TD HREF="${file.path}" WIDTH="200" BORDER="0" CELLPADDING="6">
             ${name}
             </TD></TR>
           </TABLE>`
-          : `
+            : `
           <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="8" CELLPADDING="4">
             <TR><TD HREF="${file.path}" WIDTH="230" BORDER="0" CELLPADDING="6">
             ${name}
