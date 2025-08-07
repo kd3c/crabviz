@@ -123,6 +123,7 @@
 
   .cell {
     & > rect {
+      rx: 10px;
       fill: var(--cell-bg-color);
       stroke: var(--cell-border-color);
       stroke-width: 1.6;
@@ -146,10 +147,14 @@
 
     /* symbols */
 
-    &:not(.type, .field, .property) > rect {
-      rx: 10px;
-    }
+    &:where(.type, .property) {
+      --cell-bg-color: var(--node-bg-color);
+      --cell-border-color: #8b9f4e;
 
+      & > rect {
+        rx: unset;
+      }
+    }
     &.interface {
       --cell-bg-color: #fff8dc;
       --cell-border-color: #a69348;
@@ -173,7 +178,7 @@
     }
     &.method {
       --cell-bg-color: #dec887;
-      --cell-border-color: #90772C;
+      --cell-border-color: #90772c;
     }
     &.type > text {
       transform: translateY(1px);
@@ -182,9 +187,7 @@
         fill: var(--icon-color);
       }
     }
-
-    &:where(.field, .property) > text {
-      font-weight: unset;
+    .property > text:first-of-type {
       font-style: italic;
       fill: var(--icon-color);
     }
