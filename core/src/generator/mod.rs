@@ -210,7 +210,9 @@ impl GraphGenerator {
             .map(|(p, symbols)| {
                 let symbols = symbols
                     .iter()
-                    .filter_map(|s| self.convert_symbol(self.file_id_map[p], s, &mut all_symbols))
+                    .filter_map(|s| {
+                        self.convert_symbol(self.file_id_map[p], s, None, &mut all_symbols)
+                    })
                     .collect();
 
                 File {
@@ -228,9 +230,10 @@ impl GraphGenerator {
         &self,
         file_id: u32,
         symbol: &DocumentSymbol,
+        parent: Option<&DocumentSymbol>,
         all_symbols: &mut HashSet<GlobalPosition>,
     ) -> Option<Symbol> {
-        if !self.lang.filter_symbol(symbol) {
+        if !self.lang.filter_symbol(symbol, parent) {
             return Option::None;
         }
 
@@ -239,7 +242,7 @@ impl GraphGenerator {
         let children = symbol
             .children
             .iter()
-            .filter_map(|symbol| self.convert_symbol(file_id, symbol, all_symbols))
+            .filter_map(|child| self.convert_symbol(file_id, child, Some(symbol), all_symbols))
             .collect();
 
         Some(Symbol {

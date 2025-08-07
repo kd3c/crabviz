@@ -11,13 +11,12 @@ pub(crate) trait Language {
         false
     }
 
-    fn filter_symbol(&self, symbol: &DocumentSymbol) -> bool {
+    fn filter_symbol(&self, symbol: &DocumentSymbol, parent: Option<&DocumentSymbol>) -> bool {
         match symbol.kind {
-            SymbolKind::Constant
-            | SymbolKind::Variable
-            | SymbolKind::Field
-            | SymbolKind::Property
-            | SymbolKind::EnumMember => false,
+            SymbolKind::Constant | SymbolKind::Variable | SymbolKind::EnumMember => false,
+            SymbolKind::Field | SymbolKind::Property => {
+                parent.is_some_and(|s| matches!(s.kind, SymbolKind::Interface))
+            }
             _ => true,
         }
     }
