@@ -88,14 +88,14 @@ export class CallGraph {
   }
 
   createPanZoomState() {
-    const container = this.svg.querySelector<SVGElement>("#graph0")!;
-    const pz = createPanZoom(container, {
+    const g0 = this.svg.querySelector<SVGElement>("#graph0")!;
+    const pz = createPanZoom(g0, {
       smoothScroll: false,
       autocenter: true,
     });
 
     const { x, y, scale } = structuredClone(pz.getTransform());
-    const cRect = container.getBoundingClientRect();
+    const cRect = g0.getBoundingClientRect();
     const cx = cRect.x + cRect.width / 2;
     const cy = cRect.y + cRect.height / 2;
     const sRect = this.svg.getBoundingClientRect();
@@ -107,7 +107,6 @@ export class CallGraph {
       y,
       cx,
       cy,
-      cRect,
       sRect,
     };
   }
@@ -160,9 +159,13 @@ export class CallGraph {
       return;
     }
 
-    const { pz, sRect } = this.panZoomState!;
+    const { pz, scale, cx, cy, sRect } = this.panZoomState!;
     const eRect = elem.getBoundingClientRect();
-    if (
+    if (eRect.width > sRect.width || eRect.height > sRect.height) {
+      pz.smoothZoomAbs(cx, cy, scale);
+      // no `zoomend` event and no callback available, have to use `setTimeout` here
+      setTimeout(() => pz.centerOn(elem), 1000);
+    } else if (
       eRect.left < sRect.left ||
       eRect.top < sRect.top ||
       eRect.right > sRect.right ||
