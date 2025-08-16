@@ -1,17 +1,4 @@
 .callgraph {
-  --background-color: #f5fffa;
-
-  --edge-color: #548f9e;
-
-  --node-bg-color: #f4f5f1;
-  --node-seleted-color: red;
-
-  --cell-bg-color: var(--node-bg-color);
-  --cell-border-color: #8b9f4e;
-  --cell-text-color: #202020;
-
-  --icon-color: lightcoral;
-
   width: 100%;
   height: 100%;
   outline: none;
@@ -81,7 +68,7 @@
 
     .cluster-label {
       cursor: pointer;
-      fill: lightgray;
+      fill: var(--cluster-label-bg-color);
       rx: 18px;
     }
 
@@ -122,6 +109,9 @@
   }
 
   .cell {
+    --cell-bg-color: var(--symbol-default-bg-color);
+    --cell-border-color: var(--symbol-default-border-color);
+
     & > rect {
       rx: 10px;
       fill: var(--cell-bg-color);
@@ -129,7 +119,7 @@
       stroke-width: 1.6;
     }
     & > text {
-      fill: var(--cell-text-color);
+      fill: var(--symbold-default-text-color);
     }
 
     &.highlight > rect {
@@ -147,17 +137,9 @@
 
     /* symbols */
 
-    &:where(.type, .property) {
-      --cell-bg-color: var(--node-bg-color);
-      --cell-border-color: #8b9f4e;
-
-      & > rect {
-        rx: unset;
-      }
-    }
     &.interface {
-      --cell-bg-color: #fff8dc;
-      --cell-border-color: #a69348;
+      --cell-bg-color: var(--interface-bg-color);
+      --cell-border-color: var(--interface-border-color);
 
       & > rect {
         stroke-dasharray: 7, 5;
@@ -165,31 +147,46 @@
     }
 
     &.module {
-      --cell-bg-color: #ffebcd;
-      --cell-border-color: #a67e43;
+      --cell-bg-color: var(--module-bg-color);
+      --cell-border-color: var(--module-border-color);
     }
     &.constructor {
-      --cell-bg-color: #ffdab9;
-      --cell-border-color: #a66e3c;
+      --cell-bg-color: var(--constructor-bg-color);
+      --cell-border-color: var(--constructor-border-color);
     }
     &.function {
-      --cell-bg-color: #e4ffb5;
-      --cell-border-color: #7ea63b;
+      --cell-bg-color: var(--function-bg-color);
+      --cell-border-color: var(--function-border-color);
     }
     &.method {
-      --cell-bg-color: #dec887;
-      --cell-border-color: #90772c;
+      --cell-bg-color: var(--method-bg-color);
+      --cell-border-color: var(--method-border-color);
     }
-    &.type > text {
-      transform: translateY(1px);
+    &:where(.class, .struct, .enum) {
+      --cell-bg-color: var(--struct-bg-color);
+      --cell-border-color: var(--struct-border-color);
 
-      &:first-of-type {
-        fill: var(--icon-color);
+      & > rect {
+        rx: unset;
+      }
+
+      & > text {
+        transform: translateY(1px);
+
+        &:first-of-type {
+          fill: var(--icon-color);
+        }
       }
     }
-    .property > text:first-of-type {
-      font-style: italic;
-      fill: var(--icon-color);
+    &.property {
+      & > rect {
+        rx: unset;
+      }
+
+      & > text:first-of-type {
+        font-style: italic;
+        fill: var(--icon-color);
+      }
     }
   }
 }

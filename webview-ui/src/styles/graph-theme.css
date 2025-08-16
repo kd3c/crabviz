@@ -1,0 +1,36 @@
+:root {
+  --background-color: #f5fffa;
+
+  --edge-color: #548f9e;
+
+  --cluster-label-bg-color: #e8eaed;
+
+  --node-bg-color: #f4f5f1;
+  --node-seleted-color: red;
+
+  --symbol-default-bg-color: var(--node-bg-color);
+  --symbol-default-border-color: #8b9f4e;
+  --symbol-default-text-color: #363636;
+
+  --interface-bg-color: #fff8dc;
+  --interface-border-color: #a69348;
+
+  --module-bg-color: #ffebcd;
+  --module-border-color: #a67e43;
+
+  --constructor-bg-color: #ffdab9;
+  --constructor-border-color: #a66e3c;
+
+  --method-bg-color: #fff8c5;
+  --method-border-color: #d4a72c;
+  /* --method-text-color: #9a6700; */
+
+  --function-bg-color: #bafbd0;
+  --function-border-color: #4ac26b;
+
+  --struct-bg-color: #ddf4ff;
+  --struct-border-color: #54aeff;
+  /* --struct-text-color: #8969da; */
+
+  --icon-color: lightcoral;
+}

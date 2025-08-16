@@ -6,6 +6,7 @@
 
 /* Theme */
 @import "./theme.css";
+@import "./graph-theme.css" layer(theme);
 
 /*
 * Components

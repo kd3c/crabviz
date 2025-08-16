@@ -40,20 +40,39 @@
       color: black;
 
       .kind {
-        border: 1px solid #555;
+        --kind-bg-color: var(--symbol-default-bg-color);
+        --kind-border-color: var(--symbol-default-border-color);
+
+        border: 1px solid var(--kind-border-color);
         border-radius: 9px;
-        background: #f4f5f1;
+        background: var(--kind-bg-color);
+        color: var(--symbold-default-text-color);
         padding: 2px 4px;
         flex-shrink: 0;
 
         &.func {
-          background: #e4ffb5;
+          --kind-bg-color: var(--function-bg-color);
+          --kind-border-color: var(--function-border-color);
         }
         &.method {
-          background: #deb887;
+          --kind-bg-color: var(--method-bg-color);
+          --kind-border-color: var(--method-border-color);
         }
         &.interface {
-          background: #fff8dc;
+          --kind-bg-color: var(--interface-bg-color);
+          --kind-border-color: var(--interface-border-color);
+        }
+        &.constructor {
+          --kind-bg-color: var(--constructor-bg-color);
+          --kind-border-color: var(--constructor-border-color);
+        }
+        &.module {
+          --kind-bg-color: var(--module-bg-color);
+          --kind-border-color: var(--module-border-color);
+        }
+        &:where(.class, .struct, .enum) {
+          --kind-bg-color: var(--struct-bg-color);
+          --kind-border-color: var(--struct-border-color);
         }
       }
 
