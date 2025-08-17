@@ -116,7 +116,14 @@ const GraphViewport: Component<{
             case ExportOption.Svg:
               window.postMessage({
                 command: "save SVG",
-                svg: svg(svgContent, width, height),
+                svg: svg(
+                  svgContent.replace(
+                    /transform="matrix\(.*?\)"/,
+                    `transform="translate(0 ${height})"`
+                  ),
+                  width,
+                  height
+                ),
               });
               break;
             case ExportOption.Html:

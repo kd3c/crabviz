@@ -23,8 +23,8 @@ export class CallGraph {
     this.nodes = svg.querySelectorAll("g.node");
     this.edges = svg.querySelectorAll("g.edge");
     this.clusters = svg.querySelectorAll("g.cluster");
-    this.width = this.svg.width.baseVal.value;
-    this.height = this.svg.height.baseVal.value;
+    this.width = this.svg.viewBox.baseVal.width;
+    this.height = this.svg.viewBox.baseVal.height;
     this.setUpInteraction(onSelectElem ?? this.onSelectElem);
 
     this.focus = focus;
