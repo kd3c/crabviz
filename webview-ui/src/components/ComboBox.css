@@ -40,39 +40,39 @@
       color: black;
 
       .kind {
-        --kind-bg-color: var(--symbol-default-bg-color);
-        --kind-border-color: var(--symbol-default-border-color);
+        --bg-color: var(--symbol-default-bg-color);
+        --border-color: var(--symbol-default-border-color);
 
-        border: 1px solid var(--kind-border-color);
+        border: 1px solid var(--border-color);
         border-radius: 9px;
-        background: var(--kind-bg-color);
+        background: var(--bg-color);
         color: var(--symbold-default-text-color);
         padding: 2px 4px;
         flex-shrink: 0;
 
         &.func {
-          --kind-bg-color: var(--function-bg-color);
-          --kind-border-color: var(--function-border-color);
+          --bg-color: var(--function-bg-color);
+          --border-color: var(--function-border-color);
         }
         &.method {
-          --kind-bg-color: var(--method-bg-color);
-          --kind-border-color: var(--method-border-color);
+          --bg-color: var(--method-bg-color);
+          --border-color: var(--method-border-color);
         }
         &.interface {
-          --kind-bg-color: var(--interface-bg-color);
-          --kind-border-color: var(--interface-border-color);
+          --bg-color: var(--interface-bg-color);
+          --border-color: var(--interface-border-color);
         }
         &.constructor {
-          --kind-bg-color: var(--constructor-bg-color);
-          --kind-border-color: var(--constructor-border-color);
+          --bg-color: var(--constructor-bg-color);
+          --border-color: var(--constructor-border-color);
         }
         &.module {
-          --kind-bg-color: var(--module-bg-color);
-          --kind-border-color: var(--module-border-color);
+          --bg-color: var(--module-bg-color);
+          --border-color: var(--module-border-color);
         }
         &:where(.class, .struct, .enum) {
-          --kind-bg-color: var(--struct-bg-color);
-          --kind-border-color: var(--struct-border-color);
+          --bg-color: var(--struct-bg-color);
+          --border-color: var(--struct-border-color);
         }
       }
 

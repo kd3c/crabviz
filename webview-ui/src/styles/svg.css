@@ -51,10 +51,10 @@
       --edge-color: #00bcd4;
     }
     &.incoming {
-      --edge-color: #698b69;
+      --edge-color: var(--edge-incoming-color);
     }
     &.outgoing {
-      --edge-color: #008acd;
+      --edge-color: var(--edge-outgoing-color);
     }
     &.incoming.outgoing {
       --edge-color: black;
@@ -109,37 +109,36 @@
   }
 
   .cell {
-    --cell-bg-color: var(--symbol-default-bg-color);
-    --cell-border-color: var(--symbol-default-border-color);
+    --bg-color: var(--symbol-default-bg-color);
+    --border-color: var(--symbol-default-border-color);
+    --border-width: 1.6;
 
     & > rect {
       rx: 10px;
-      fill: var(--cell-bg-color);
-      stroke: var(--cell-border-color);
-      stroke-width: 1.6;
+      fill: var(--bg-color);
+      stroke: var(--border-color);
+      stroke-width: var(--border-width);
     }
     & > text {
       fill: var(--symbold-default-text-color);
     }
 
+    &:where(.highlight, .selected, :not(:has(> .cell:hover)):hover) {
+      --border-width: 3.2;
+    }
+
     &.highlight > rect {
-      --cell-border-color: blue;
-      filter: url(#highlightShadow);
+      stroke: url(#highlightGradient);
     }
-    &.selected:not(.highlight) > rect {
-      --cell-border-color: red;
-      filter: url(#selectShadow);
-    }
-    &:not(.highlight):not(.selected):not(:has(> .cell:hover)):hover > rect {
-      --cell-border-color: orange;
-      filter: url(#hoverShadow);
+    &.selected > rect {
+      filter: drop-shadow(3px 3px 3px var(--border-color));
     }
 
     /* symbols */
 
     &.interface {
-      --cell-bg-color: var(--interface-bg-color);
-      --cell-border-color: var(--interface-border-color);
+      --bg-color: var(--interface-bg-color);
+      --border-color: var(--interface-border-color);
 
       & > rect {
         stroke-dasharray: 7, 5;
@@ -147,24 +146,24 @@
     }
 
     &.module {
-      --cell-bg-color: var(--module-bg-color);
-      --cell-border-color: var(--module-border-color);
+      --bg-color: var(--module-bg-color);
+      --border-color: var(--module-border-color);
     }
     &.constructor {
-      --cell-bg-color: var(--constructor-bg-color);
-      --cell-border-color: var(--constructor-border-color);
+      --bg-color: var(--constructor-bg-color);
+      --border-color: var(--constructor-border-color);
     }
     &.function {
-      --cell-bg-color: var(--function-bg-color);
-      --cell-border-color: var(--function-border-color);
+      --bg-color: var(--function-bg-color);
+      --border-color: var(--function-border-color);
     }
     &.method {
-      --cell-bg-color: var(--method-bg-color);
-      --cell-border-color: var(--method-border-color);
+      --bg-color: var(--method-bg-color);
+      --border-color: var(--method-border-color);
     }
     &:where(.class, .struct, .enum) {
-      --cell-bg-color: var(--struct-bg-color);
-      --cell-border-color: var(--struct-border-color);
+      --bg-color: var(--struct-bg-color);
+      --border-color: var(--struct-border-color);
 
       & > rect {
         rx: unset;

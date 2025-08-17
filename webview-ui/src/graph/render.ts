@@ -104,15 +104,10 @@ export async function renderSVG(
 
   const defs = document.createElementNS(namespaceURI, "defs");
   defs.innerHTML = `<filter id="shadow"><feDropShadow dx="0" dy="0" stdDeviation="4" flood-opacity="0.5"></filter>
-    <filter id="highlightShadow" y="-30%" height="160%">
-    <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="blue" />
-    </filter>
-    <filter id="selectShadow" y="-30%" height="160%">
-    <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="red" />
-    </filter>
-    <filter id="hoverShadow" y="-30%" height="160%">
-    <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="orange" />
-    </filter>`;
+    <linearGradient id="highlightGradient">
+      <stop offset="0%" stop-color="var(--edge-incoming-color)" />
+      <stop offset="100%" stop-color="var(--edge-outgoing-color)" />
+    </linearGradient>`
   svg.appendChild(defs);
 
   if (focus) {
