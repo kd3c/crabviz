@@ -11,7 +11,9 @@ pub(crate) struct Jsts;
 impl Language for Jsts {
     fn filter_symbol(&self, symbol: &DocumentSymbol, parent: Option<&DocumentSymbol>) -> bool {
         match symbol.kind {
-            SymbolKind::Function => !symbol.name.ends_with(" callback"),
+            SymbolKind::Function => {
+                !(symbol.name.ends_with(" callback") || symbol.name == "<function>")
+            }
             _ => DEFAULT_LANG.filter_symbol(symbol, parent),
         }
     }
