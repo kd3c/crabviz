@@ -1,4 +1,6 @@
 .callgraph {
+  --bold-border: 3.2;
+
   width: 100%;
   height: 100%;
   outline: none;
@@ -48,7 +50,7 @@
     }
 
     &:hover {
-      --edge-color: #00bcd4;
+      --edge-color: var(--selected-color);
     }
     &.incoming {
       --edge-color: var(--edge-incoming-color);
@@ -57,7 +59,7 @@
       --edge-color: var(--edge-outgoing-color);
     }
     &.incoming.outgoing {
-      --edge-color: black;
+      --edge-color: var(--edge-incoming-outgoing-color);
     }
   }
 
@@ -78,13 +80,11 @@
 
     &.selected {
       polygon {
-        stroke-width: 2.5;
-        stroke: red;
+        stroke-width: var(--bold-border);
+        stroke: var(--selected-color);
       }
 
-      .cluster-label {
-        fill: #ff603b;
-      }
+      --cluster-label-bg-color: color-mix(in srgb, var(--selected-color) 30%, transparent);
     }
   }
 
@@ -95,8 +95,8 @@
       filter: url(#shadow);
     }
     &.selected > rect {
-      stroke: var(--node-seleted-color);
-      stroke-width: 2.25;
+      stroke: var(--selected-color);
+      stroke-width: var(--bold-border);
     }
 
     & > .title {
@@ -124,14 +124,14 @@
     }
 
     &:where(.highlight, .selected, :not(:has(> .cell:hover)):hover) {
-      --border-width: 3.2;
+      --border-width: var(--bold-border);
     }
 
     &.highlight > rect {
       stroke: url(#highlightGradient);
     }
     &.selected > rect {
-      filter: drop-shadow(3px 3px 3px var(--border-color));
+      filter: drop-shadow(3px 3px 6px var(--border-color));
     }
 
     /* symbols */

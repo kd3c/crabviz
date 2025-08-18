@@ -1,14 +1,16 @@
 :root {
   --background-color: #f5fffa;
 
+  --selected-color: #4fe1f4;
+
   --edge-color: #548f9e;
   --edge-incoming-color: #698b69;
   --edge-outgoing-color: #008acd;
+  --edge-incoming-outgoing-color: black;
 
   --cluster-label-bg-color: #e8eaed;
 
   --node-bg-color: #f4f5f1;
-  --node-seleted-color: red;
 
   --symbol-default-bg-color: var(--node-bg-color);
   --symbol-default-border-color: #8b9f4e;
