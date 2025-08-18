@@ -224,7 +224,7 @@ export class CallGraph {
     const inout = [this.incomings!, this.outgoings!];
 
     for (let i = 0; i < inout.length; ++i) {
-      const visited = new Set([cellId, focus!]);
+      const visited = new Set([cellId, this.focus!]);
       const map = inout[i];
       const highlightEdges = highlights[i];
 
