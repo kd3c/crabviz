@@ -4,6 +4,7 @@
 
 const path = require('path');
 const WasmPackPlugin = require("@wasm-tool/wasm-pack-plugin");
+const WebpackShellPluginNext = require('webpack-shell-plugin-next');
 
 //@ts-check
 /** @typedef {import('webpack').Configuration} WebpackConfig **/
@@ -52,6 +53,14 @@ const extensionConfig = {
       outDir: path.resolve(__dirname, 'out', 'crabviz'),
       extraArgs: '--target=web --features vscode',
       forceMode: 'production',
+    }),
+    // @ts-ignore
+    new WebpackShellPluginNext({
+      onBuildStart: {
+        scripts: ['pnpm --dir ../../webview-ui build'],
+        blocking: true,
+        parallel: false
+      }
     }),
   ],
   experiments: {
