@@ -83,7 +83,7 @@ export class CommandManager {
 		}, (progress, token) => {
 			token.onCancellationRequested(() => cancelled = true);
 
-			const generator = new Generator(root.uri, lang);
+			const generator = new Generator(root.uri, lang, true);
 			return generator.generateCallGraph(files.get(lang)!, progress, token);
 		})
 		.then(graph => {
@@ -109,7 +109,7 @@ export class CommandManager {
 			location: vscode.ProgressLocation.Window,
 			title: "Crabviz: Generating call graph",
 		}, _ => {
-			const generator = new Generator(root.uri, lang);
+			const generator = new Generator(root.uri, lang, false);
 			return generator.generateFuncCallGraph(uri, anchor, ig);
 		})
 		.then((res) => {

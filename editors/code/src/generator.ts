@@ -19,9 +19,9 @@ export class Generator {
   private root: string;
   private inner: GraphGenerator;
 
-  public constructor(root: vscode.Uri, lang: string) {
+  public constructor(root: vscode.Uri, lang: string, filter: boolean) {
     this.root = normalizedPath(root.path);
-    this.inner = new GraphGenerator(lang);
+    this.inner = new GraphGenerator(lang, filter);
   }
 
   public async generateCallGraph(

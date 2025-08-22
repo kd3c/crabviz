@@ -31,10 +31,12 @@ pub struct GraphGenerator {
     incoming_calls: HashMap<GlobalPosition, Vec<CallHierarchyIncomingCall>>,
     outgoing_calls: HashMap<GlobalPosition, Vec<CallHierarchyOutgoingCall>>,
     interfaces: HashMap<GlobalPosition, Vec<GlobalPosition>>,
+
+    filter: bool,
 }
 
 impl GraphGenerator {
-    pub fn new(lang: &str) -> Self {
+    pub fn new(lang: &str, filter: bool) -> Self {
         Self {
             lang: lang::language_handler(lang),
 
@@ -43,6 +45,8 @@ impl GraphGenerator {
             incoming_calls: HashMap::new(),
             outgoing_calls: HashMap::new(),
             interfaces: HashMap::new(),
+
+            filter,
         }
     }
 
@@ -233,7 +237,7 @@ impl GraphGenerator {
         parent: Option<&DocumentSymbol>,
         all_symbols: &mut HashSet<GlobalPosition>,
     ) -> Option<Symbol> {
-        if !self.lang.filter_symbol(symbol, parent) {
+        if self.filter && !self.lang.filter_symbol(symbol, parent) {
             return Option::None;
         }
 
