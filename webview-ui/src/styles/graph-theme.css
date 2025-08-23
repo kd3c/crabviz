@@ -13,7 +13,7 @@
   --node-bg-color: #f4f5f1;
 
   --symbol-default-bg-color: var(--node-bg-color);
-  --symbol-default-border-color: #8b9f4e;
+  --symbol-default-border-color: #889f4e;
   --symbol-default-text-color: #363636;
 
   --interface-bg-color: #fff8dc;
@@ -36,5 +36,6 @@
   --struct-border-color: #54aeff;
   /* --struct-text-color: #8969da; */
 
-  --icon-color: lightcoral;
+  --type-icon-color: #8969da;
+  --property-icon-color: #5f9348;
 }

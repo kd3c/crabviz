@@ -170,21 +170,21 @@
       }
 
       & > text {
-        transform: translateY(1px);
+        transform: translateY(1.5px);
 
         &:first-of-type {
-          fill: var(--icon-color);
+          fill: var(--type-icon-color);
         }
       }
     }
-    &.property {
+    &:where(.field, .property) {
       & > rect {
         rx: unset;
       }
 
       & > text:first-of-type {
         font-style: italic;
-        fill: var(--icon-color);
+        fill: var(--property-icon-color);
       }
     }
   }

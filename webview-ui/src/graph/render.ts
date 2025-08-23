@@ -50,6 +50,8 @@ export async function renderSVG(
         g.classList.add("interface");
         break;
       case SymbolKind.FIELD:
+        g.classList.add("field");
+        break;
       case SymbolKind.PROPERTY:
         g.classList.add("property");
         break;
