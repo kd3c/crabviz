@@ -15,6 +15,10 @@ export function html(
   height: number,
   focus: string | null,
 ): string {
+  if (focus) {
+    focus = `"${focus}"`;
+  }
+
   return `
 <!DOCTYPE html>
 <html lang="en">
