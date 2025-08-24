@@ -8,12 +8,15 @@ Crabviz is a [LSP](https://microsoft.github.io/language-server-protocol/)-based 
 * Highlight on click
 * Two kinds of graphs
 
-   You can generate a call graph for selected files to get an overview, or a selected function to track the call hierarchy.
-* Export call graphs as SVG
+   You can generate a call graph for selected files to get an overview, or for a selected function to track the call hierarchy.
+* Collapse Files to view file relationships
+* Save call graphs as HTML or SVG
+* Go to definition
+* Search symbols
 
 ## Preview
 
-![preview](https://raw.githubusercontent.com/chanhx/assets/main/crabviz/preview.gif)
+![preview](https://raw.githubusercontent.com/chanhx/assets/a62015f1ee792dd57d756f106a9e48815f106ee3/crabviz/preview.gif)
 
 ## Install
 

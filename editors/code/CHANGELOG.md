@@ -1,5 +1,26 @@
 # Change Log
 
+## 0.5.0 (2025.8.24)
+
+### Features
+
+* Collapse files
+* Go to definition
+* Search symbols
+* Save as HTML
+
+### Improvements
+
+* New color scheme
+* All symbols and folders are selectable
+* Fade out unrelated files
+
+### Fixed
+
+* Fail to generate call graphs when connect to remote or WSL
+* \[Rust\] Variables are shown in call graphs
+* \[JS/TS\] Fail to generate function call graphs for arrow functions
+
 ## 0.4.0 (2024.3.27)
 
 ### Improvements
