@@ -1,0 +1,15 @@
+﻿{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2020",
+    "moduleResolution": "Bundler",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "typeRoots": ["./types", "./node_modules/@types"],
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*", "types/**/*.d.ts"]
+}

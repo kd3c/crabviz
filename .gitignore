@@ -1,0 +1,60 @@
+/WebApp/*
+# --- Node / JS ---
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
+dist/
+out/
+build/
+*.tsbuildinfo
+*.map
+
+# Package-specific builds
+webview-ui/dist/
+webview-ui/.vite/
+packages/cli/dist/
+
+# Test / coverage
+coverage/
+.nyc_output/
+reports/
+jest-stare/
+
+# Logs & temp
+logs/
+*.log
+tmp/
+temp/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Editors / IDEs
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+.idea/
+*.iml
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# VS Code extension packages
+*.vsix
+
+# Optional: generated diagrams (remove if you want them in git)
+WebApp/Diagram/
+
+# (Optional) Python crumbs if any appear
+__pycache__/
+*.pyc
+.venv/
+venv/
