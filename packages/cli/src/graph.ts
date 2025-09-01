@@ -11,6 +11,19 @@ export function mergeGraphs(parts: { nodes: NodeInfo[]; edges: Edge[] }[]): Grap
   return { nodes, edges };
 }
 
+export function sanitizeGraph(g: GraphData): GraphData {
+  const nodeIds = new Set(g.nodes.map(n => n.id));
+  const edges = g.edges.filter(
+    e => typeof e.from === "string" &&
+         typeof e.to === "string" &&
+         e.from && e.to &&
+         nodeIds.has(e.from) &&
+         nodeIds.has(e.to)
+  );
+  return { nodes: g.nodes, edges };
+}
+
+
 export function toDot(gd: GraphData, simplified = false): string {
   const g = new Graph({ directed: true });
 

@@ -9,16 +9,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@viz-js/viz": "^3.9.0",
+    "@viz-js/viz": "^3.16.0",
     "open-props": "^1.7.10",
     "panzoom": "^9.4.3",
-    "solid-js": "^1.9.7",
-    "virtua": "^0.39.0"
+    "solid-js": "^1.9.9",
+    "virtua": "^0.39.3"
   },
   "devDependencies": {
+    "@types/node": "^24.3.0",
     "postcss-jit-props": "^1.0.15",
-    "typescript": "^5.5.3",
-    "vite": "^7.0.6",
+    "typescript": "^5.9.2",
+    "vite": "^6.3.5",
     "vite-plugin-solid": "^2.11.8"
   }
 }
