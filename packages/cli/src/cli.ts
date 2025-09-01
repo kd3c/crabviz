@@ -28,9 +28,12 @@ type Args = {
   symbolDepth?: number;           // limit symbol nesting depth in UI export
   rankdir?: string;               // layout direction (LR or TB)
   filesPerRow?: number;           // when rankdir=TB, group N files per rank row inside folder clusters
+  showCalls?: 'none' | 'file' | 'function'; // control which call/import relationships to show
+  callDepth?: number;             // user-friendly hop depth (number of call hops to explore; 0 = unlimited)
 };
 
 async function main() {
+  const runId = Date.now().toString(36);
   const argv = (await yargs(hideBin(process.argv))
     .option("roots", { type: "array", demandOption: true })
     .option("out", { type: "string", demandOption: true })
@@ -45,6 +48,8 @@ async function main() {
   .option("symbol-depth", { type: "number", describe: "Limit symbol nesting depth for --ui-file export. 0 = no symbols (file rows only), 1 = top-level symbols, etc. (default: unlimited for detailed, 0 for --simplified)", default: -1 })
   .option("rankdir", { type: "string", choices: ["LR","TB"], describe: "Graph layout direction (LR=left-right, TB=top-bottom)", default: "LR" })
   .option("files-per-row", { type: "number", describe: "When --rankdir=TB, pack up to N file nodes per horizontal row within a folder", default: 0 })
+  .option("show-calls", { type: "string", choices: ["none","file","function"], default: "function", describe: "Which relationships to include: none, file-level import edges only, or full function-level call edges" })
+  .option("call-depth", { type: "number", default: 0, describe: "Number of call hops to traverse for --show-calls=function (0 = unlimited). e.g. 1 shows direct calls only; 2 includes callers-of-callers." })
     .help().argv) as unknown as Args;
 
   const roots = argv.roots.map(r => resolve(String(r)));
@@ -67,8 +72,9 @@ async function main() {
   try {
     // Apply layout config early
     setLayoutConfig({ rankdir: (argv.rankdir==='TB'?'TB':'LR') as any, filesPerRow: argv.filesPerRow && argv.filesPerRow>0 ? argv.filesPerRow : 0 });
-    const tsPart = await scanTs(roots, tsClient);
-    const pyPart = await scanPy(roots, pyClient);
+  if (!argv.quiet) console.error(`[crabviz:${runId}] scanning roots (${roots.length}):\n  ${roots.join('\n  ')}`);
+  const tsPart = await scanTs(roots, tsClient);
+  const pyPart = await scanPy(roots, pyClient);
     const gd     = mergeGraphs([tsPart, pyPart]);
 
     if (argv.uiFile && argv.renderer === 'export' && argv.format === 'html') {
@@ -76,8 +82,8 @@ async function main() {
         // Determine effective depth: if -1 and simplified -> 0 (files only), if -1 and detailed -> unlimited
         const effectiveSymbolDepthSimplified = symbolDepthFlag >= 0 ? symbolDepthFlag : 0;
         const effectiveSymbolDepthDetailed   = symbolDepthFlag >= 0 ? symbolDepthFlag : Infinity;
-      const fileIds = gd.nodes.map(n => n.id);
-      if (!fileIds.length) { console.error('No files discovered for ui export.'); process.exit(1); }
+  const fileIds = gd.nodes.map(n => n.id);
+  if (!fileIds.length) { console.error(`[crabviz:${runId}] No files discovered for ui export (roots searched=${roots.length}).`); process.exit(1); }
       if (argv.simplified) {
         console.error('Building simplified (collapsed) graph with call relations (multi-language)...');
         // Partition files by extension for multi-language LSP usage
@@ -152,8 +158,13 @@ async function main() {
   const pyFiles = fileIds.filter(f=> /\.py$/i.test(f));
   const tsFiles = fileIds.filter(f=> !/\.py$/i.test(f));
   const subGraphs: any[] = [];
-  if (tsFiles.length) subGraphs.push(await buildSymbolGraph(tsFiles, tsClient, { collapse:false, maxDepth: argv.maxDepth||0, includeImpl: argv.impl!==false, trimLastDepth: argv.trimLastDepth }));
-  if (pyFiles.length) subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, { collapse:false, maxDepth: argv.maxDepth||0, includeImpl: argv.impl!==false, trimLastDepth: argv.trimLastDepth }));
+  // Map --call-depth (hops) to internal maxDepth (symbol recursion). Internal depth starts at 0; processing a depth level collects outgoing edges to next level without needing to recurse into that next level to record them. Therefore internalMaxDepth = (callDepth>0) ? callDepth-1 : -1 (unlimited)
+  const callDepth = argv.callDepth ?? 0;
+  const internalMaxDepth = (callDepth>0) ? callDepth-1 : -1; // -1 => unlimited per buildSymbolGraph guard logic
+  const showCallsMode = argv.showCalls || 'function';
+  const skipCalls = showCallsMode !== 'function';
+  if (tsFiles.length) subGraphs.push(await buildSymbolGraph(tsFiles, tsClient, { collapse:false, maxDepth: internalMaxDepth, includeImpl: argv.impl!==false, trimLastDepth: argv.trimLastDepth, skipCalls }));
+  if (pyFiles.length) subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, { collapse:false, maxDepth: internalMaxDepth, includeImpl: argv.impl!==false, trimLastDepth: argv.trimLastDepth, skipCalls }));
   const symGraph = { files: [] as any[], relations: [] as any[] };
   let nextId = 0; const idRemap = new Map<string, number>();
   for (const sg of subGraphs) {
@@ -171,7 +182,7 @@ async function main() {
     }
   }
   // Reuse existing file-level import edges (gd.edges) so relationships (arrows) appear like UI.
-  if (gd.edges?.length) {
+  if (gd.edges?.length && showCallsMode !== 'none') {
     const idIndex = new Map(symGraph.files.map(f=> [f.path.replace(/\\/g,'/'), f.id] as const));
     const added = new Set<string>();
     for (const e of gd.edges) {
@@ -188,6 +199,7 @@ async function main() {
       } as any);
     }
   }
+  if (!argv.quiet) console.error(`[crabviz:${runId}] building symbol graph (detailed) files=${symGraph.files.length} relationsPreImport=${symGraph.relations.length}`);
   const rootDir = fileIds.length ? resolve(fileIds[0], '..') : process.cwd();
   const svg = await renderSymbolGraph(symGraph, rootDir, false, effectiveSymbolDepthDetailed);
         const fsMod = await import('node:fs');
@@ -207,7 +219,7 @@ async function main() {
         const runtimeInit = js.trim().length ? `${js}\ntry{const svgEl=document.querySelector('.callgraph');if(svgEl&& typeof CallGraph!=='undefined'){const g=new CallGraph(svgEl,null);g.setUpPanZoom();}}catch{}` : '';
         const html = `<!DOCTYPE html><html><head><meta charset=utf-8><title>${he.encode('Crabviz Detailed')}</title><style>${theme}\n${css}</style></head><body>${svg.outerHTML}${ runtimeInit? `<script type=module>${runtimeInit}</script>`:''}</body></html>`;
         await import('node:fs').then(m=> { m.writeFileSync(resolve(argv.out), html, 'utf8'); });
-  if (!argv.quiet) console.log(`Wrote ${resolve(argv.out)} (export/html ui detailed)`); else process.stdout.write(resolve(argv.out));
+  if (!argv.quiet) console.log(`Wrote ${resolve(argv.out)} (export/html ui detailed) [run=${runId}]`); else process.stdout.write(resolve(argv.out));
         return;
       }
     }

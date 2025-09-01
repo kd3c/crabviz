@@ -300,11 +300,29 @@ export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean, sy
   out.push('edge [arrowsize=1.5 label=" "];');
   if (sub) emitSubgraphDOT(sub, out, { v:0 }); else nodes.forEach(n=> out.push(`${n.id} [id="${n.id}" label=<${n.labelHtml}> shape=plaintext style=filled]`));
   if ((process.env.CRV_DEBUG||'').includes('dot')) out.push('// EDGES-BEGIN');
+  const isTB = (cfg.rankdir||'LR') === 'TB';
   for (const e of edges){
     const attrs = [`id="${e.id}"`];
-    if (e.tailport) attrs.push(`tailport="${e.tailport}"`);
-    if (e.headport) attrs.push(`headport="${e.headport}"`);
     if (e.class) attrs.push(`class="${e.class}"`);
+    const sameNode = e.tail === e.head && e.tailport && e.headport && (!e.class || e.class!=='impl');
+    if (e.tailport || e.headport) {
+      if (isTB) {
+        if (sameNode) {
+          // Attach both ends to east side to avoid covering text; loosen layout.
+            attrs.push(`tailport="${e.tailport}:e"`);
+            attrs.push(`headport="${e.headport}:e"`);
+            attrs.push('constraint=false');
+            attrs.push('minlen=1');
+            if (!e.class) attrs.push('class="intra"');
+        } else {
+          if (e.tailport) attrs.push(`tailport="${e.tailport}:e"`);
+          if (e.headport) attrs.push(`headport="${e.headport}:w"`);
+        }
+      } else {
+        if (e.tailport) attrs.push(`tailport="${e.tailport}"`);
+        if (e.headport) attrs.push(`headport="${e.headport}"`);
+      }
+    }
     out.push(`${e.tail} -> ${e.head} [${attrs.join(' ')} label=" "];`);
   }
   if ((process.env.CRV_DEBUG||'').includes('dot')) out.push('// EDGES-END');
