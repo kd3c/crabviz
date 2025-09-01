@@ -53,14 +53,39 @@ async function main() {
       const fileIds = gd.nodes.map(n => n.id);
       if (!fileIds.length) { console.error('No files discovered for ui export.'); process.exit(1); }
       if (argv.simplified) {
-        await emitFileLevelInteractiveHtml(
-          argv.out,
-          fileIds,
-          gd.edges.map(e => ({ from: e.from, to: e.to })),
-          true,
-          `Crabviz — Simplified`
-        );
-        console.log(`Wrote ${resolve(argv.out)} (export/html ui-file simplified)`);
+        console.error('Building simplified (collapsed) graph with call relations...');
+        // Build full symbol graph (collapse:false) so that call relations are collected; we'll render collapsed later.
+        const symGraph = await buildSymbolGraph(fileIds, tsClient, { collapse:false, maxDepth:0, includeImpl:false });
+        console.error('Simplified files (sample):', symGraph.files.slice(0,5).map(f=>f.path));
+        const beforeRel = symGraph.relations.length;
+        // Inject import edges (gd.edges) as additional file-level relations (dedup by from->to)
+        if (gd.edges?.length) {
+          const idIndex = new Map<string, number>(symGraph.files.map(f=> [f.path.replace(/\\/g,'/'), f.id] as const));
+          const existing = new Set<string>(symGraph.relations.map(r=> `${r.from.fileId}->${r.to.fileId}`));
+          let injected = 0;
+          for (const e of gd.edges) {
+            const a = idIndex.get(e.from.replace(/\\/g,'/'));
+            const b = idIndex.get(e.to.replace(/\\/g,'/'));
+            if (a==null || b==null || a===b) continue;
+            const key = `${a}->${b}`;
+            if (existing.has(key)) continue; // already have a relation via call graph
+            existing.add(key);
+            symGraph.relations.push({ from:{ fileId:a, line:0, character:0 }, to:{ fileId:b, line:0, character:0 }, kind:0 } as any);
+            injected++;
+          }
+          console.error(`Call relations collected: ${beforeRel}; import edges injected: ${injected}; total now: ${symGraph.relations.length}`);
+        } else {
+          console.error(`Call relations collected: ${beforeRel}; no import edges available.`);
+        }
+        const rootDir = fileIds.length ? resolve(fileIds[0], '..') : process.cwd();
+        // Render collapsed (collapse=true) so nodes show only file rows but edges are aggregated file-level.
+        const svg = await renderSymbolGraph(symGraph, rootDir, true);
+        const theme = await import('node:fs').then(m=> m.readFileSync(resolve('webview-ui/src/styles/graph-theme.css'),'utf8')+m.readFileSync(resolve('webview-ui/src/styles/svg.css'),'utf8'));
+        const css = await import('node:fs').then(m=> m.readFileSync(resolve('webview-ui/src/assets/out/index.css'),'utf8'));
+        const js  = await import('node:fs').then(m=> m.readFileSync(resolve('webview-ui/src/assets/out/index.js'),'utf8'));
+        const html = `<!DOCTYPE html><html><head><meta charset=utf-8><title>${he.encode('Crabviz — Simplified')}</title><style>${theme}\n${css}</style></head><body>${svg.outerHTML}<script type=module>${js}\nconst svgEl=document.querySelector('.callgraph');if(svgEl){const g=new CallGraph(svgEl,null);g.setUpPanZoom();}</script></body></html>`;
+        await import('node:fs').then(m=> { m.writeFileSync(resolve(argv.out), html, 'utf8'); });
+        console.log(`Wrote ${resolve(argv.out)} (export/html ui simplified collapsed)`);
         return;
       } else {
         // Detailed symbol-level graph build via LSP (best-effort)
