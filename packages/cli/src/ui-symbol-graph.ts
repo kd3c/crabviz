@@ -8,7 +8,7 @@ import { convertToHierarchy, buildSubgraphTree, emitSubgraphDOT, HierNode as Fil
 import { URI } from 'vscode-uri';
 // Directly reuse / port UI graphviz conversion pieces for parity
 
-export interface BuildSymbolGraphOptions { collapse:boolean; maxDepth?:number; includeImpl?:boolean; }
+export interface BuildSymbolGraphOptions { collapse:boolean; maxDepth?:number; includeImpl?:boolean; trimLastDepth?: boolean; skipCalls?: boolean; }
 
 // 1. Build symbol-level Graph via LSP (files + symbols + relations)
 export async function buildSymbolGraph(files:string[], client:LspClient, opts:BuildSymbolGraphOptions): Promise<Graph> {
@@ -41,8 +41,9 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
     fileObjs.push({ id:idBy.get(p)!, path:p, symbols });
   }
 
-  const relations: Relation[] = [];
-  if (!opts.collapse) {
+  const relations: (Relation & {_depth?:number})[] = [];
+  let maxDepthSeen = 0;
+  if (!opts.skipCalls && !opts.collapse) {
     // Build quick lookup for symbol by file -> list (flattened) for range matching
     const flatByFile = new Map<number, Symbol[]>();
     for (const f of fileObjs) {
@@ -98,8 +99,10 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
       const targetSym = findSymbol(fileId, selStart);
       return { fileId, targetSym, pos: selStart };
     }
-    async function processSymbol(f:File, sym:Symbol, depth=0){
-      if (opts.maxDepth && depth>opts.maxDepth) return;
+  const REL_CAP = Number(process.env.CRV_RELATION_CAP||8000);
+  async function processSymbol(f:File, sym:Symbol, depth=0){
+      if (opts.maxDepth !== undefined && opts.maxDepth >= 0 && depth >= opts.maxDepth) return;
+      if (relations.length >= REL_CAP) return;
       if (!isCallLike(sym.kind)) return;
       let items = await client.prepareCallHierarchy(f.path, sym.range.start) || [];
       if (!items.length) {
@@ -111,10 +114,10 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
       if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] prepare ${f.path} line=${sym.range.start.line} got=${items.length}`);
       const head = items.find((it:any)=> samePos(it.selectionRange?.start, sym.range.start)) || items[0];
       if (!head) return;
-      await resolveIncoming(head, f, sym, depth);
-      await resolveOutgoing(head, f, sym, depth);
+  await resolveIncoming(head, f, sym, depth);
+  await resolveOutgoing(head, f, sym, depth);
     }
-    async function resolveIncoming(head:any, f:File, sym:Symbol, depth:number){
+  async function resolveIncoming(head:any, f:File, sym:Symbol, depth:number){
       const incoming = await client.incomingCalls(head) || [];
       if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] incoming ${incoming.length} for ${f.path}#${sym.range.start.line}`);
       for (const call of incoming) {
@@ -126,13 +129,16 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
         const key = `${fileId}:${fromLine}_${fromChar}->${f.id}:${sym.range.start.line}_${sym.range.start.character}`;
         if (!dedup.has(key)) {
           dedup.add(key);
-          relations.push({ from:{fileId, line:fromLine, character:fromChar}, to:{fileId:f.id, line:sym.range.start.line, character:sym.range.start.character}, kind:RelationKind.Call });
+          relations.push({ from:{fileId, line:fromLine, character:fromChar}, to:{fileId:f.id, line:sym.range.start.line, character:sym.range.start.character}, kind:RelationKind.Call, _depth:depth });
+          if (depth>maxDepthSeen) maxDepthSeen = depth;
         }
         const visitKey = `in:${fileId}:${fromLine}_${fromChar}`;
-        if (!visitedIncoming.has(visitKey) && targetSym) {
+        if (!visitedIncoming.has(visitKey)) {
           visitedIncoming.add(visitKey);
-          const parentFile = fileObjs.find(ff=> ff.id===fileId);
-      if (parentFile) await processSymbol(parentFile, targetSym, depth+1);
+          if (targetSym) {
+            const parentFile = fileObjs.find(ff=> ff.id===fileId);
+            if (parentFile) await processSymbol(parentFile, targetSym, depth+1);
+          }
         }
       }
     }
@@ -148,20 +154,25 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
         const key = `${f.id}:${sym.range.start.line}_${sym.range.start.character}->${fileId}:${toLine}_${toChar}`;
         if (!dedup.has(key)) {
           dedup.add(key);
-          relations.push({ from:{fileId:f.id, line:sym.range.start.line, character:sym.range.start.character}, to:{fileId, line:toLine, character:toChar}, kind:RelationKind.Call });
+          relations.push({ from:{fileId:f.id, line:sym.range.start.line, character:sym.range.start.character}, to:{fileId, line:toLine, character:toChar}, kind:RelationKind.Call, _depth:depth });
+          if (depth>maxDepthSeen) maxDepthSeen = depth;
         }
         const visitKey = `out:${fileId}:${toLine}_${toChar}`;
-        if (!visitedOutgoing.has(visitKey) && targetSym) {
+        if (!visitedOutgoing.has(visitKey)) {
           visitedOutgoing.add(visitKey);
-          const parentFile = fileObjs.find(ff=> ff.id===fileId);
-          if (parentFile) await processSymbol(parentFile, targetSym, depth+1);
+          if (targetSym) {
+            const parentFile = fileObjs.find(ff=> ff.id===fileId);
+            if (parentFile) await processSymbol(parentFile, targetSym, depth+1);
+          }
         }
       }
     }
     for (const f of fileObjs) {
       for (const sym of iterateSymbols(f.symbols)) {
+        if (relations.length >= REL_CAP) break;
         await processSymbol(f, sym, 0);
       }
+      if (relations.length >= REL_CAP) break;
     }
     const callCount = relations.length;
     // Interface implementation edges (Impl)
@@ -187,7 +198,7 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
             const toChar = targetSym? targetSym.range.start.character : pos.character;
             const key = `${f.id}:${sym.range.start.line}_${sym.range.start.character}->${fileId}:${toLine}_${toChar}:impl`;
             if (dedup.has(key)) continue; dedup.add(key);
-            relations.push({ from:{ fileId:f.id, line:sym.range.start.line, character:sym.range.start.character }, to:{ fileId, line:toLine, character:toChar }, kind:RelationKind.Impl });
+            relations.push({ from:{ fileId:f.id, line:sym.range.start.line, character:sym.range.start.character }, to:{ fileId, line:toLine, character:toChar }, kind:RelationKind.Impl, _depth:0 });
           } catch {/* ignore single impl error */}
         }
       }
@@ -195,7 +206,13 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
     }
     if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] call relations=${callCount} impl relations=${relations.length-callCount} total=${relations.length}`);
   }
-  return { files: fileObjs, relations };
+  // Optionally trim the deepest recorded depth (drop relations only at deepest level)
+  let finalRelations: Relation[] = relations as Relation[];
+  if (opts.trimLastDepth && maxDepthSeen>0) {
+    finalRelations = relations.filter(r=> (r as any)._depth !== maxDepthSeen);
+    if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] trimLastDepth applied: maxDepthSeen=${maxDepthSeen} kept=${finalRelations.length}/${relations.length}`);
+  }
+  return { files: fileObjs, relations: finalRelations };
 }
 
 function addCallRelation(endpoint:any, file:File, sym:Symbol, idBy:Map<string,number>, out:Relation[], incoming:boolean){
@@ -244,22 +261,34 @@ function isCallLike(kind:number){
 }
 
 // 2. Convert Graph to DOT using same hierarchy helpers as file-level path logic
-export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean): string {
+export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean, symbolDepth:number = Infinity): string {
   // Reuse file-level hierarchy computation exactly
   const baseNodes = convertToHierarchy(graph as any) as FileHierNode[]; // returns id, dir, file-level labelHtml
   const fileById = new Map(graph.files.map(f=> [f.id.toString(), f] as const));
+  // Precompute depth map for filtering relations later
+  const depthByPort = new Set<string>();
+  function markDepths(fileId:number, syms:Symbol[], depth:number){
+    for (const s of syms){
+      const port = `${fileId}:${s.range.start.line}_${s.range.start.character}`;
+      if (depth <= symbolDepth) depthByPort.add(port);
+      if (s.children.length) markDepths(fileId, s.children, depth+1);
+    }
+  }
+  for (const f of graph.files) markDepths(f.id, f.symbols, 1);
+
   const nodes: Node[] = baseNodes.map(n=> {
     const f = fileById.get(n.id)!;
-    if (collapse || !f.symbols.length) return n as Node;
+    // Show symbol rows up to depth regardless of collapse (collapse only affects edge aggregation)
+    if (!f.symbols.length || symbolDepth<=0) return n as Node;
     // Rebuild labelHtml with symbol rows appended (keep header row as first line)
     const headerMatch = /<TABLE[^>]*>(<TR><TD HREF=[^]*?<\/TR>)/.exec(n.labelHtml);
     const headerRow = headerMatch ? headerMatch[1] : `<TR><TD HREF="${f.path}" WIDTH="230" BORDER="0" CELLPADDING="6">${escapeHtml(f.path.split(/[/\\]/).pop()||'')}</TD></TR>`;
-    const symRows = f.symbols.map(s=> symbolToCell(f.id,s)).join('\n');
+  const symRows = f.symbols.map(s=> symbolToCellDepth(f.id,s,1,symbolDepth, collapse)).filter(Boolean).join('\n');
     const rebuilt = `<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="8" CELLPADDING="4">\n${headerRow}\n${symRows}\n<TR><TD CELLSPACING="0" HEIGHT="1" WIDTH="1" FIXEDSIZE="TRUE" STYLE="invis"></TD></TR>\n</TABLE>`;
     return { id:n.id, dir:n.dir, labelHtml:rebuilt };
   });
   const sub = buildSubgraphTree(nodes as unknown as FileHierNode[], '');
-  const edges = collectEdges(graph.relations, collapse);
+  const edges = collectEdges(graph.relations, collapse, depthByPort, symbolDepth);
   if ((process.env.CRV_DEBUG||'').includes('dot')) console.error(`[sym] edges collected=${edges.length}`);
   const out:string[] = [];
   out.push('digraph G {');
@@ -312,11 +341,44 @@ function symbolToCell(fileId:number, s:Symbol): string {
   }
   return `<TR><TD CELLPADDING="0"><TABLE ID="${baseId}" ${href} BORDER="0" CELLSPACING="8" CELLPADDING="4" CELLBORDER="0" BGCOLOR="green"><TR><TD PORT="${port}">${icon}${text}</TD></TR>${s.children.map(c=>symbolToCell(fileId,c)).join('\n')}</TABLE></TD></TR>`;
 }
+// Depth-limited variant
+function symbolToCellDepth(fileId:number, s:Symbol, depth:number, maxDepth:number, flat:boolean): string | '' {
+  const text = escapeHtml(s.name);
+  const port = `${s.range.start.line}_${s.range.start.character}`;
+  const href = `HREF="${s.kind}"`;
+  let icon = '';
+  switch (s.kind) {
+    case 5: icon = 'C'; break; case 23: icon='S'; break; case 10: icon='E'; break; case 26: icon='T'; break; case 8: icon='f'; break; case 7: icon='p'; break; default: break;
+  }
+  if (icon.length>0) icon = `<B>${icon}</B>  `;
+  const baseId = `${fileId}:${port}`;
+  // Flat mode (collapsed view) always renders as single row (no nested tables)
+  if (flat) {
+    return `<TR><TD PORT="${port}" ID="${baseId}" ${href} BGCOLOR="blue">${icon}${text}</TD></TR>`;
+  }
+  if (!s.children.length || depth>=maxDepth) {
+    return `<TR><TD PORT="${port}" ID="${baseId}" ${href} BGCOLOR="blue">${icon}${text}</TD></TR>`;
+  }
+  const childRows = s.children.map(c=> symbolToCellDepth(fileId,c,depth+1,maxDepth,false)).filter(Boolean).join('\n');
+  return `<TR><TD CELLPADDING="0"><TABLE ID="${baseId}" ${href} BORDER="0" CELLSPACING="8" CELLPADDING="4" CELLBORDER="0" BGCOLOR="green"><TR><TD PORT="${port}">${icon}${text}</TD></TR>${childRows}</TABLE></TD></TR>`;
+}
 // Removed local tree + prefix implementations in favor of reuse.
-function collectEdges(rel:Relation[], collapse:boolean):Edge[]{ if(!collapse) return rel.map(r=> ({ tail:`${r.from.fileId}`, head:`${r.to.fileId}`, id:`${r.from.fileId}:${r.from.line}_${r.from.character}-${r.to.fileId}:${r.to.line}_${r.to.character}`, tailport:`${r.from.line}_${r.from.character}`, headport:`${r.to.line}_${r.to.character}`, class: r.kind===RelationKind.Impl?'impl':undefined })); const m=new Map<string,Edge>(); for(const r of rel){ const tail = r.from.fileId.toString(); const head = r.to.fileId.toString(); const cls = r.kind===RelationKind.Impl?'impl':undefined; const id=`${tail}:${cls||''}-${head}:`; if(!m.has(id)) m.set(id,{tail,head,id, class:cls}); } return Array.from(m.values()); }
+function collectEdges(rel:Relation[], collapse:boolean, depthPorts:Set<string>, symbolDepth:number):Edge[]{
+  if(!collapse){
+    return rel.filter(r=> {
+      if (symbolDepth===Infinity) return true;
+      const fromOk = depthPorts.has(`${r.from.fileId}:${r.from.line}_${r.from.character}`);
+      const toOk = depthPorts.has(`${r.to.fileId}:${r.to.line}_${r.to.character}`);
+      return fromOk && toOk;
+    }).map(r=> ({ tail:`${r.from.fileId}`, head:`${r.to.fileId}`, id:`${r.from.fileId}:${r.from.line}_${r.from.character}-${r.to.fileId}:${r.to.line}_${r.to.character}`, tailport:`${r.from.line}_${r.from.character}`, headport:`${r.to.line}_${r.to.character}`, class: r.kind===RelationKind.Impl?'impl':undefined }));
+  }
+  const m=new Map<string,Edge>();
+  for(const r of rel){ const tail = r.from.fileId.toString(); const head = r.to.fileId.toString(); const cls = r.kind===RelationKind.Impl?'impl':undefined; const id=`${tail}:${cls||''}-${head}:`; if(!m.has(id)) m.set(id,{tail,head,id, class:cls}); }
+  return Array.from(m.values());
+}
 
 // 3. Render DOT to SVG and post-process like ui-file-graph.ts (reuse its postProcess with slight extension for cells)
-export async function renderSymbolGraph(graph:Graph, root:string, collapse:boolean): Promise<SVGSVGElement> {
+export async function renderSymbolGraph(graph:Graph, root:string, collapse:boolean, symbolDepth:number=Infinity): Promise<SVGSVGElement> {
   if (typeof (globalThis as any).document === 'undefined') {
     const { JSDOM } = await import('jsdom');
     const { window } = new JSDOM('<!doctype html><html><body></body></html>');
@@ -326,7 +388,7 @@ export async function renderSymbolGraph(graph:Graph, root:string, collapse:boole
     }
   }
   const viz = await vizInstance();
-  const dot = symbolGraphToDot(graph, root, collapse);
+  const dot = symbolGraphToDot(graph, root, collapse, symbolDepth);
   let svg: any;
   try {
     const svgText: string = await (viz as any).renderString(dot, { format:'svg', engine:'dot' });

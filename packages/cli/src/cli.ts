@@ -22,6 +22,9 @@ type Args = {
   uiFile: boolean;                // new: use file-level interactive pipeline
   maxDepth?: number;              // call graph recursion depth limit
   impl?: boolean;                 // include implementation edges
+  trimLastDepth?: boolean;        // drop deepest depth relations (one level before leaf)
+  quiet?: boolean;                // suppress log output
+  symbolDepth?: number;           // limit symbol nesting depth in UI export
 };
 
 async function main() {
@@ -31,12 +34,24 @@ async function main() {
     .option("simplified", { type: "boolean", default: false })
   .option("max-depth", { type: "number", describe: "Max recursive call hierarchy depth (default unlimited)", default: 0 })
   .option("impl", { type: "boolean", describe: "Include interface implementation edges", default: true })
+  .option("trim-last-depth", { type: "boolean", describe: "Trim the deepest collected call depth (one level before leaves)", default: false })
+  .option("quiet", { type: "boolean", describe: "Suppress log / debug output", default: false })
   .option("renderer", { type: "string", choices: ["export","viz"] as const, default: "export" })
     .option("format", { type: "string", choices: ["html","svg"] as const, default: "html" })
   .option("ui-file", { type: "boolean", default: false, describe: "Use file-level UI-style interactive export (no function symbols yet)" })
+  .option("symbol-depth", { type: "number", describe: "Limit symbol nesting depth for --ui-file export. 0 = no symbols (file rows only), 1 = top-level symbols, etc. (default: unlimited for detailed, 0 for --simplified)", default: -1 })
     .help().argv) as unknown as Args;
 
   const roots = argv.roots.map(r => resolve(String(r)));
+
+  // Silence logs if requested
+  if (argv.quiet) {
+    // Keep a minimal final success message via process.stdout.write; override console outputs.
+  (console as any)._origLog = console.log;
+  (console as any)._origError = console.error;
+  console.log = (()=>{}) as any;
+  console.error = (()=>{}) as any;
+  }
 
   // Use common project root for LSP servers to ensure project-wide features (call hierarchy) work
   function commonRoot(paths:string[]):string { if(!paths.length) return process.cwd(); const segs = paths.map(p=> p.split(/\\|\//)); const minLen = Math.min(...segs.map(a=>a.length)); let i=0; for(; i<minLen; i++){ const part = segs[0][i]; if(!segs.every(a=> a[i]===part)) break; } return segs[0].slice(0,i).join('/') || process.cwd(); }
@@ -50,12 +65,37 @@ async function main() {
     const gd     = mergeGraphs([tsPart, pyPart]);
 
     if (argv.uiFile && argv.renderer === 'export' && argv.format === 'html') {
+        const symbolDepthFlag = (argv.symbolDepth ?? -1);
+        // Determine effective depth: if -1 and simplified -> 0 (files only), if -1 and detailed -> unlimited
+        const effectiveSymbolDepthSimplified = symbolDepthFlag >= 0 ? symbolDepthFlag : 0;
+        const effectiveSymbolDepthDetailed   = symbolDepthFlag >= 0 ? symbolDepthFlag : Infinity;
       const fileIds = gd.nodes.map(n => n.id);
       if (!fileIds.length) { console.error('No files discovered for ui export.'); process.exit(1); }
       if (argv.simplified) {
-        console.error('Building simplified (collapsed) graph with call relations...');
-        // Build full symbol graph (collapse:false) so that call relations are collected; we'll render collapsed later.
-        const symGraph = await buildSymbolGraph(fileIds, tsClient, { collapse:false, maxDepth:0, includeImpl:false });
+        console.error('Building simplified (collapsed) graph with call relations (multi-language)...');
+        // Partition files by extension for multi-language LSP usage
+        const pyFiles = fileIds.filter(f=> /\.py$/i.test(f));
+        const tsFiles = fileIds.filter(f=> !/\.py$/i.test(f));
+        const subGraphs: any[] = [];
+  if (tsFiles.length) subGraphs.push(await buildSymbolGraph(tsFiles, tsClient, { collapse:false, maxDepth:0, includeImpl:false, trimLastDepth: argv.trimLastDepth, skipCalls:true }));
+  if (pyFiles.length) subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, { collapse:false, maxDepth:0, includeImpl:false, trimLastDepth: argv.trimLastDepth, skipCalls:true }));
+        // Reassign ids to keep them unique across merged graphs
+        const symGraph = { files: [] as any[], relations: [] as any[] };
+        let nextId = 0; const idRemap = new Map<string, number>();
+        for (const sg of subGraphs) {
+          for (const f of sg.files) { const newId = nextId++; idRemap.set(f.id+':'+f.path, newId); symGraph.files.push({ ...f, id:newId }); }
+        }
+        for (const sg of subGraphs) {
+          for (const r of sg.relations) {
+            const fromFile = sg.files.find((f:any)=> f.id===r.from.fileId);
+            const toFile   = sg.files.find((f:any)=> f.id===r.to.fileId);
+            if (!fromFile || !toFile) continue;
+            const newFrom = idRemap.get(r.from.fileId+':'+fromFile.path);
+            const newTo   = idRemap.get(r.to.fileId+':'+toFile.path);
+            if (newFrom==null || newTo==null) continue;
+            symGraph.relations.push({ ...r, from:{ ...r.from, fileId:newFrom }, to:{ ...r.to, fileId:newTo } });
+          }
+        }
         console.error('Simplified files (sample):', symGraph.files.slice(0,5).map(f=>f.path));
         const beforeRel = symGraph.relations.length;
         // Inject import edges (gd.edges) as additional file-level relations (dedup by from->to)
@@ -79,18 +119,50 @@ async function main() {
         }
         const rootDir = fileIds.length ? resolve(fileIds[0], '..') : process.cwd();
         // Render collapsed (collapse=true) so nodes show only file rows but edges are aggregated file-level.
-        const svg = await renderSymbolGraph(symGraph, rootDir, true);
-        const theme = await import('node:fs').then(m=> m.readFileSync(resolve('webview-ui/src/styles/graph-theme.css'),'utf8')+m.readFileSync(resolve('webview-ui/src/styles/svg.css'),'utf8'));
-        const css = await import('node:fs').then(m=> m.readFileSync(resolve('webview-ui/src/assets/out/index.css'),'utf8'));
-        const js  = await import('node:fs').then(m=> m.readFileSync(resolve('webview-ui/src/assets/out/index.js'),'utf8'));
-        const html = `<!DOCTYPE html><html><head><meta charset=utf-8><title>${he.encode('Crabviz — Simplified')}</title><style>${theme}\n${css}</style></head><body>${svg.outerHTML}<script type=module>${js}\nconst svgEl=document.querySelector('.callgraph');if(svgEl){const g=new CallGraph(svgEl,null);g.setUpPanZoom();}</script></body></html>`;
+  const svg = await renderSymbolGraph(symGraph, rootDir, true, effectiveSymbolDepthSimplified);
+        const fsMod = await import('node:fs');
+    function readAsset(rel:string, optional=false){
+          const attempt = [
+            resolve(rel),
+            resolve('..','..',rel),
+            resolve(process.cwd(),'..','..',rel)
+          ];
+      for (const a of attempt){ try { return fsMod.readFileSync(a,'utf8'); } catch {} }
+      if (optional) return '';
+      throw new Error('Asset not found: '+rel+' tried '+attempt.join(','));
+        }
+    const theme = readAsset('webview-ui/src/styles/graph-theme.css', true)+readAsset('webview-ui/src/styles/svg.css', true);
+    const css = readAsset('webview-ui/src/assets/out/index.css', true);
+    const js  = readAsset('webview-ui/src/assets/out/index.js', true);
+    const runtimeInit = js.trim().length ? `${js}\ntry{const svgEl=document.querySelector('.callgraph');if(svgEl&& typeof CallGraph!=='undefined'){const g=new CallGraph(svgEl,null);g.setUpPanZoom();}}catch{}` : '';
+    const html = `<!DOCTYPE html><html><head><meta charset=utf-8><title>${he.encode('Crabviz — Simplified')}</title><style>${theme}\n${css}</style></head><body>${svg.outerHTML}${ runtimeInit? `<script type=module>${runtimeInit}</script>`:''}</body></html>`;
         await import('node:fs').then(m=> { m.writeFileSync(resolve(argv.out), html, 'utf8'); });
-        console.log(`Wrote ${resolve(argv.out)} (export/html ui simplified collapsed)`);
+  if (!argv.quiet) console.log(`Wrote ${resolve(argv.out)} (export/html ui simplified collapsed)`); else process.stdout.write(resolve(argv.out));
         return;
       } else {
-        // Detailed symbol-level graph build via LSP (best-effort)
-    console.error('Building symbol-level graph (may take a while)...');
-  const symGraph = await buildSymbolGraph(fileIds, tsClient, { collapse:false, maxDepth: argv.maxDepth||0, includeImpl: argv.impl!==false });
+        // Detailed symbol-level graph build via LSP (multi-language)
+    console.error('Building symbol-level graph (multi-language)...');
+  const pyFiles = fileIds.filter(f=> /\.py$/i.test(f));
+  const tsFiles = fileIds.filter(f=> !/\.py$/i.test(f));
+  const subGraphs: any[] = [];
+  if (tsFiles.length) subGraphs.push(await buildSymbolGraph(tsFiles, tsClient, { collapse:false, maxDepth: argv.maxDepth||0, includeImpl: argv.impl!==false, trimLastDepth: argv.trimLastDepth }));
+  if (pyFiles.length) subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, { collapse:false, maxDepth: argv.maxDepth||0, includeImpl: argv.impl!==false, trimLastDepth: argv.trimLastDepth }));
+  const symGraph = { files: [] as any[], relations: [] as any[] };
+  let nextId = 0; const idRemap = new Map<string, number>();
+  for (const sg of subGraphs) {
+    for (const f of sg.files) { const newId = nextId++; idRemap.set(f.id+':'+f.path, newId); symGraph.files.push({ ...f, id:newId }); }
+  }
+  for (const sg of subGraphs) {
+    for (const r of sg.relations) {
+      const fromFile = sg.files.find((f:any)=> f.id===r.from.fileId);
+      const toFile   = sg.files.find((f:any)=> f.id===r.to.fileId);
+      if (!fromFile || !toFile) continue;
+      const newFrom = idRemap.get(r.from.fileId+':'+fromFile.path);
+      const newTo   = idRemap.get(r.to.fileId+':'+toFile.path);
+      if (newFrom==null || newTo==null) continue;
+      symGraph.relations.push({ ...r, from:{ ...r.from, fileId:newFrom }, to:{ ...r.to, fileId:newTo } });
+    }
+  }
   // Reuse existing file-level import edges (gd.edges) so relationships (arrows) appear like UI.
   if (gd.edges?.length) {
     const idIndex = new Map(symGraph.files.map(f=> [f.path.replace(/\\/g,'/'), f.id] as const));
@@ -110,13 +182,25 @@ async function main() {
     }
   }
   const rootDir = fileIds.length ? resolve(fileIds[0], '..') : process.cwd();
-  const svg = await renderSymbolGraph(symGraph, rootDir, false);
-        const theme = await import('node:fs').then(m=> m.readFileSync(resolve('webview-ui/src/styles/graph-theme.css'),'utf8')+m.readFileSync(resolve('webview-ui/src/styles/svg.css'),'utf8'));
-        const css = await import('node:fs').then(m=> m.readFileSync(resolve('webview-ui/src/assets/out/index.css'),'utf8'));
-        const js  = await import('node:fs').then(m=> m.readFileSync(resolve('webview-ui/src/assets/out/index.js'),'utf8'));
-        const html = `<!DOCTYPE html><html><head><meta charset=utf-8><title>${he.encode('Crabviz Detailed')}</title><style>${theme}\n${css}</style></head><body>${svg.outerHTML}<script type=module>${js}\nconst svgEl=document.querySelector('.callgraph');if(svgEl){const g=new CallGraph(svgEl,null);g.setUpPanZoom();}</script></body></html>`;
+  const svg = await renderSymbolGraph(symGraph, rootDir, false, effectiveSymbolDepthDetailed);
+        const fsMod = await import('node:fs');
+        function readAsset(rel:string, optional=false){
+          const attempt = [
+            resolve(rel),
+            resolve('..','..',rel),
+            resolve(process.cwd(),'..','..',rel)
+          ];
+          for (const a of attempt){ try { return fsMod.readFileSync(a,'utf8'); } catch {} }
+          if (optional) return '';
+          throw new Error('Asset not found: '+rel+' tried '+attempt.join(','));
+        }
+        const theme = readAsset('webview-ui/src/styles/graph-theme.css', true)+readAsset('webview-ui/src/styles/svg.css', true);
+        const css = readAsset('webview-ui/src/assets/out/index.css', true);
+        const js  = readAsset('webview-ui/src/assets/out/index.js', true);
+        const runtimeInit = js.trim().length ? `${js}\ntry{const svgEl=document.querySelector('.callgraph');if(svgEl&& typeof CallGraph!=='undefined'){const g=new CallGraph(svgEl,null);g.setUpPanZoom();}}catch{}` : '';
+        const html = `<!DOCTYPE html><html><head><meta charset=utf-8><title>${he.encode('Crabviz Detailed')}</title><style>${theme}\n${css}</style></head><body>${svg.outerHTML}${ runtimeInit? `<script type=module>${runtimeInit}</script>`:''}</body></html>`;
         await import('node:fs').then(m=> { m.writeFileSync(resolve(argv.out), html, 'utf8'); });
-  console.log(`Wrote ${resolve(argv.out)} (export/html ui detailed)`);
+  if (!argv.quiet) console.log(`Wrote ${resolve(argv.out)} (export/html ui detailed)`); else process.stdout.write(resolve(argv.out));
         return;
       }
     }
@@ -129,13 +213,13 @@ async function main() {
         console.log(`Wrote ${resolve(argv.out)} (export/svg)`);
       } else {
         await emitCrabvizExportHtmlFromDot(argv.out, dot, `Crabviz${argv.simplified ? " — Simplified" : ""}`);
-        console.log(`Wrote ${resolve(argv.out)} (export/html)`);
+        if (!argv.quiet) console.log(`Wrote ${resolve(argv.out)} (export/html)`); else process.stdout.write(resolve(argv.out));
       }
     } else {
       // minimal fallback
       const html = await dotToHtml(dot);
       writeFileSync(resolve(argv.out), html, "utf8");
-      console.log(`Wrote ${resolve(argv.out)} (viz/minimal)`);
+      if (!argv.quiet) console.log(`Wrote ${resolve(argv.out)} (viz/minimal)`); else process.stdout.write(resolve(argv.out));
     }
   } finally {
     await Promise.allSettled([tsClient.dispose(), pyClient.dispose()]);
