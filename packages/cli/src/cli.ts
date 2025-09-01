@@ -30,6 +30,7 @@ type Args = {
   filesPerRow?: number;           // when rankdir=TB, group N files per rank row inside folder clusters
   showCalls?: 'none' | 'file' | 'function'; // control which call/import relationships to show
   callDepth?: number;             // user-friendly hop depth (number of call hops to explore; 0 = unlimited)
+  suppressInnerCalls?: boolean;   // new: hide intra-file call edges while keeping inter-file
 };
 
 async function main() {
@@ -50,6 +51,7 @@ async function main() {
   .option("files-per-row", { type: "number", describe: "When --rankdir=TB, pack up to N file nodes per horizontal row within a folder", default: 0 })
   .option("show-calls", { type: "string", choices: ["none","file","function"], default: "function", describe: "Which relationships to include: none, file-level import edges only, or full function-level call edges" })
   .option("call-depth", { type: "number", default: 0, describe: "Number of call hops to traverse for --show-calls=function (0 = unlimited). e.g. 1 shows direct calls only; 2 includes callers-of-callers." })
+  .option("suppress-inner-calls", { type: "boolean", default: false, describe: "Hide call edges where source and target are in the same file (reduces visual clutter)" })
     .help().argv) as unknown as Args;
 
   const roots = argv.roots.map(r => resolve(String(r)));
@@ -201,6 +203,9 @@ async function main() {
   }
   if (!argv.quiet) console.error(`[crabviz:${runId}] building symbol graph (detailed) files=${symGraph.files.length} relationsPreImport=${symGraph.relations.length}`);
   const rootDir = fileIds.length ? resolve(fileIds[0], '..') : process.cwd();
+  if (argv.suppressInnerCalls) {
+    symGraph.relations = symGraph.relations.filter(r=> r.from.fileId !== r.to.fileId);
+  }
   const svg = await renderSymbolGraph(symGraph, rootDir, false, effectiveSymbolDepthDetailed);
         const fsMod = await import('node:fs');
         function readAsset(rel:string, optional=false){
