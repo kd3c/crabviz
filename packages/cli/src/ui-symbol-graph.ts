@@ -2,7 +2,7 @@ import { LspClient } from './lsp-manager.js';
 import { Graph, File, Symbol, Relation, RelationKind } from './ui-graph-types.js';
 import { instance as vizInstance } from '@viz-js/viz';
 import { escapeHtml } from './ui-utils.js';
-import { convertToHierarchy, buildSubgraphTree, emitSubgraphDOT, HierNode as FileHierNode } from './ui-file-graph.js';
+import { convertToHierarchy, buildSubgraphTree, emitSubgraphDOT, HierNode as FileHierNode, getLayoutConfig } from './ui-file-graph.js';
 // (We previously attempted to use convertUiGraph + viz.renderSVGElement for parity, but
 // encountered DOMParser strict parsing issues in Node. We now stick with DOT path.)
 import { URI } from 'vscode-uri';
@@ -292,7 +292,8 @@ export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean, sy
   if ((process.env.CRV_DEBUG||'').includes('dot')) console.error(`[sym] edges collected=${edges.length}`);
   const out:string[] = [];
   out.push('digraph G {');
-  out.push('rankdir=LR;');
+  const cfg = getLayoutConfig();
+  out.push(`rankdir=${cfg.rankdir||'LR'};`);
   out.push('ranksep=2.0;');
   out.push('fontsize=16; fontname="Arial";');
   out.push('node [fontsize=16 fontname="Arial" shape=plaintext style=filled];');
@@ -405,6 +406,18 @@ export async function renderSymbolGraph(graph:Graph, root:string, collapse:boole
 }
 
 function postProcess(svg:SVGSVGElement){
+  // Responsive sizing: convert fixed pt width/height to scalable viewBox
+  const rawW = svg.getAttribute('width');
+  const rawH = svg.getAttribute('height');
+  const num = (v:string|null)=> v && /[0-9.]/.test(v) ? parseFloat(v) : undefined;
+  const w = num(rawW||'');
+  const h = num(rawH||'');
+  if (w && h) {
+    if (!svg.getAttribute('viewBox')) svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+    if (!svg.getAttribute('style')) svg.setAttribute('style','width:100%;height:100vh;');
+  }
   svg.classList.add('callgraph');
   svg.querySelectorAll('title').forEach(t=> t.remove());
   // Flatten anchors; classify title vs cell like UI's render.ts

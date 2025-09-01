@@ -3,6 +3,12 @@ import { JSDOM } from 'jsdom';
 import { instance as vizInstance } from '@viz-js/viz';
 import { splitDirectory, commonAncestorPath, escapeHtml } from './ui-utils.js';
 
+// Layout configuration (shared with symbol graph rendering)
+export interface LayoutConfig { filesPerRow?: number; rankdir?: 'LR' | 'TB'; }
+let layoutConfig: LayoutConfig = { filesPerRow: 0, rankdir: 'LR' };
+export function setLayoutConfig(cfg: LayoutConfig){ layoutConfig = { ...layoutConfig, ...cfg }; }
+export function getLayoutConfig(): LayoutConfig { return layoutConfig; }
+
 function ensureDom() {
   if (typeof (globalThis as any).document === 'undefined') {
     const { window } = new JSDOM('<!doctype html><html><head></head><body></body></html>');
@@ -90,6 +96,14 @@ export function emitSubgraphDOT(sg:HierSubgraph, out:string[], clusterIdRef:{v:n
     out.push(`label=<${subgraphTitle(sg.dir)}>`);
   }
   for (const n of sg.nodes) out.push(`${n.id} [id="${n.id}" label=<${n.labelHtml}> shape=plaintext style=filled]`);
+  // Optional horizontal packing: group nodes into ranks (only effective when rankdir=TB)
+  if ((layoutConfig.filesPerRow||0) > 1 && layoutConfig.rankdir === 'TB' && sg.nodes.length > (layoutConfig.filesPerRow||0)) {
+    const per = layoutConfig.filesPerRow!;
+    for (let i=0;i<sg.nodes.length;i+=per){
+      const chunk = sg.nodes.slice(i,i+per);
+      if (chunk.length > 1) out.push(`{ rank=same; ${chunk.map(c=> c.id).join(' ')} }`);
+    }
+  }
   for (const child of sg.subs) emitSubgraphDOT(child, out, clusterIdRef);
   if (sg.dir !== '') out.push('}');
 }
@@ -115,7 +129,7 @@ function graphToDot(graph:Graph, root:string, collapse:boolean): string {
   const edges = buildEdgeList(graph.relations, collapse);
   const out:string[] = [];
   out.push('digraph G {');
-  out.push('rankdir=LR;');
+  out.push(`rankdir=${layoutConfig.rankdir};`);
   out.push('ranksep=2.0;');
   out.push('fontsize=16; fontname=Arial;');
   if (!nodes.length) {
@@ -163,6 +177,20 @@ export async function renderFileGraph(graph: Graph, root:string, collapse:boolea
 }
 
 function postProcessSvg(svg: SVGSVGElement, collapse:boolean){
+  // Make responsive: derive viewBox from width/height then remove absolute sizing
+  const rawW = svg.getAttribute('width');
+  const rawH = svg.getAttribute('height');
+  const num = (v:string|null)=> v && /[0-9.]/.test(v) ? parseFloat(v) : undefined;
+  const w = num(rawW||'');
+  const h = num(rawH||'');
+  if (w && h) {
+    // Graphviz emits pt; treat as px scale 1:1 for viewBox
+    if (!svg.getAttribute('viewBox')) svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+    // Allow CSS to drive sizing; fallback inline style for plain file viewing
+    if (!svg.getAttribute('style')) svg.setAttribute('style','width:100%;height:100vh;');
+  }
   svg.classList.add('callgraph');
   // Convert node polygons first (some polygons may be degenerate; guard points length)
     // Anchor processing (flatten <a>, set ids, data-path) similar to webview UI

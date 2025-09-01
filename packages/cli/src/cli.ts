@@ -10,6 +10,7 @@ import { mergeGraphs, toDot } from "./graph.js";
 import { dotToHtml } from "./html.js";
 import { emitCrabvizExportHtmlFromDot, emitCrabvizSvgFromDot, emitFileLevelInteractiveHtml } from "./export-html.js";
 import { buildSymbolGraph, renderSymbolGraph } from './ui-symbol-graph.js';
+import { setLayoutConfig } from './ui-file-graph.js';
 import { generateUiStyleSvg } from './ui-file-graph.js';
 import he from 'he';
 
@@ -25,6 +26,8 @@ type Args = {
   trimLastDepth?: boolean;        // drop deepest depth relations (one level before leaf)
   quiet?: boolean;                // suppress log output
   symbolDepth?: number;           // limit symbol nesting depth in UI export
+  rankdir?: string;               // layout direction (LR or TB)
+  filesPerRow?: number;           // when rankdir=TB, group N files per rank row inside folder clusters
 };
 
 async function main() {
@@ -40,6 +43,8 @@ async function main() {
     .option("format", { type: "string", choices: ["html","svg"] as const, default: "html" })
   .option("ui-file", { type: "boolean", default: false, describe: "Use file-level UI-style interactive export (no function symbols yet)" })
   .option("symbol-depth", { type: "number", describe: "Limit symbol nesting depth for --ui-file export. 0 = no symbols (file rows only), 1 = top-level symbols, etc. (default: unlimited for detailed, 0 for --simplified)", default: -1 })
+  .option("rankdir", { type: "string", choices: ["LR","TB"], describe: "Graph layout direction (LR=left-right, TB=top-bottom)", default: "LR" })
+  .option("files-per-row", { type: "number", describe: "When --rankdir=TB, pack up to N file nodes per horizontal row within a folder", default: 0 })
     .help().argv) as unknown as Args;
 
   const roots = argv.roots.map(r => resolve(String(r)));
@@ -60,6 +65,8 @@ async function main() {
   const pyClient = await launchPyright(lspRoot);
 
   try {
+    // Apply layout config early
+    setLayoutConfig({ rankdir: (argv.rankdir==='TB'?'TB':'LR') as any, filesPerRow: argv.filesPerRow && argv.filesPerRow>0 ? argv.filesPerRow : 0 });
     const tsPart = await scanTs(roots, tsClient);
     const pyPart = await scanPy(roots, pyClient);
     const gd     = mergeGraphs([tsPart, pyPart]);
