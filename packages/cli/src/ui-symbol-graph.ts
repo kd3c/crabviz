@@ -267,14 +267,14 @@ export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean, sy
   const fileById = new Map(graph.files.map(f=> [f.id.toString(), f] as const));
   // Precompute depth map for filtering relations later
   const depthByPort = new Set<string>();
-  function markDepths(fileId:number, syms:Symbol[], depth:number){
-    for (const s of syms){
-      const port = `${fileId}:${s.range.start.line}_${s.range.start.character}`;
-      if (depth <= symbolDepth) depthByPort.add(port);
-      if (s.children.length) markDepths(fileId, s.children, depth+1);
-    }
+  const parentPortBy = new Map<string,string|undefined>(); // fullPort -> parentFullPort
+  function visitSym(fileId:number, s:Symbol, depth:number, parentFull?:string){
+    const full = `${fileId}:${s.range.start.line}_${s.range.start.character}`;
+    parentPortBy.set(full, parentFull);
+    if (depth <= symbolDepth) depthByPort.add(full);
+    if (s.children.length) for (const c of s.children) visitSym(fileId,c,depth+1,full);
   }
-  for (const f of graph.files) markDepths(f.id, f.symbols, 1);
+  for (const f of graph.files) for (const s of f.symbols) visitSym(f.id,s,1,undefined);
 
   const nodes: Node[] = baseNodes.map(n=> {
     const f = fileById.get(n.id)!;
@@ -288,7 +288,7 @@ export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean, sy
     return { id:n.id, dir:n.dir, labelHtml:rebuilt };
   });
   const sub = buildSubgraphTree(nodes as unknown as FileHierNode[], '');
-  const edges = collectEdges(graph.relations, collapse, depthByPort, symbolDepth);
+  const edges = collectEdges(graph.relations, collapse, depthByPort, symbolDepth, parentPortBy);
   if ((process.env.CRV_DEBUG||'').includes('dot')) console.error(`[sym] edges collected=${edges.length}`);
   const out:string[] = [];
   out.push('digraph G {');
@@ -382,14 +382,42 @@ function symbolToCellDepth(fileId:number, s:Symbol, depth:number, maxDepth:numbe
   return `<TR><TD CELLPADDING="0"><TABLE ID="${baseId}" ${href} BORDER="0" CELLSPACING="8" CELLPADDING="4" CELLBORDER="0" BGCOLOR="green"><TR><TD PORT="${port}">${icon}${text}</TD></TR>${childRows}</TABLE></TD></TR>`;
 }
 // Removed local tree + prefix implementations in favor of reuse.
-function collectEdges(rel:Relation[], collapse:boolean, depthPorts:Set<string>, symbolDepth:number):Edge[]{
+function collectEdges(rel:Relation[], collapse:boolean, depthPorts:Set<string>, symbolDepth:number, parentPortBy:Map<string,string|undefined>):Edge[]{
+  function visiblePort(fileId:number, line:number, char:number): string | undefined {
+    const full = `${fileId}:${line}_${char}`;
+    if (depthPorts.has(full) || symbolDepth===Infinity) return `${line}_${char}`;
+    // Ascend to ancestor that is visible
+    let cur: string | undefined = full;
+    const seen = new Set<string>();
+    while (cur && !depthPorts.has(cur)) {
+      if (seen.has(cur)) break; seen.add(cur);
+      cur = parentPortBy.get(cur);
+    }
+    if (cur && depthPorts.has(cur)) {
+      const [, port] = cur.split(':');
+      return port;
+    }
+    return undefined;
+  }
   if(!collapse){
-    return rel.filter(r=> {
-      if (symbolDepth===Infinity) return true;
-      const fromOk = depthPorts.has(`${r.from.fileId}:${r.from.line}_${r.from.character}`);
-      const toOk = depthPorts.has(`${r.to.fileId}:${r.to.line}_${r.to.character}`);
-      return fromOk && toOk;
-    }).map(r=> ({ tail:`${r.from.fileId}`, head:`${r.to.fileId}`, id:`${r.from.fileId}:${r.from.line}_${r.from.character}-${r.to.fileId}:${r.to.line}_${r.to.character}`, tailport:`${r.from.line}_${r.from.character}`, headport:`${r.to.line}_${r.to.character}`, class: r.kind===RelationKind.Impl?'impl':undefined }));
+    const map = new Map<string,{edge:Edge;count:number}>();
+    for (const r of rel){
+      const tailVis = visiblePort(r.from.fileId, r.from.line, r.from.character);
+      const headVis = visiblePort(r.to.fileId, r.to.line, r.to.character);
+      if (!tailVis || !headVis) continue;
+      const cls = r.kind===RelationKind.Impl?'impl':undefined;
+      const key = `${r.from.fileId}:${tailVis}->${r.to.fileId}:${headVis}:${cls||''}`;
+      if (!map.has(key)) {
+        map.set(key,{ edge:{ tail:`${r.from.fileId}`, head:`${r.to.fileId}`, id:`${r.from.fileId}:${tailVis}-${r.to.fileId}:${headVis}`, tailport:tailVis, headport:headVis, class:cls }, count:1 });
+      } else {
+        map.get(key)!.count++;
+      }
+    }
+    // Optionally annotate heavy edges for future styling (data-count via id suffix)
+    for (const v of map.values()) {
+      if (v.count>1) v.edge.id = v.edge.id+`*${v.count}`;
+    }
+    return Array.from(map.values()).map(v=> v.edge);
   }
   const m=new Map<string,Edge>();
   for(const r of rel){ const tail = r.from.fileId.toString(); const head = r.to.fileId.toString(); const cls = r.kind===RelationKind.Impl?'impl':undefined; const id=`${tail}:${cls||''}-${head}:`; if(!m.has(id)) m.set(id,{tail,head,id, class:cls}); }
