@@ -20,6 +20,8 @@ type Args = {
   renderer: "export" | "viz";   // export = extension-like, viz = minimal
   format: "html" | "svg";       // only used with renderer=export
   uiFile: boolean;                // new: use file-level interactive pipeline
+  maxDepth?: number;              // call graph recursion depth limit
+  impl?: boolean;                 // include implementation edges
 };
 
 async function main() {
@@ -27,6 +29,8 @@ async function main() {
     .option("roots", { type: "array", demandOption: true })
     .option("out", { type: "string", demandOption: true })
     .option("simplified", { type: "boolean", default: false })
+  .option("max-depth", { type: "number", describe: "Max recursive call hierarchy depth (default unlimited)", default: 0 })
+  .option("impl", { type: "boolean", describe: "Include interface implementation edges", default: true })
   .option("renderer", { type: "string", choices: ["export","viz"] as const, default: "export" })
     .option("format", { type: "string", choices: ["html","svg"] as const, default: "html" })
   .option("ui-file", { type: "boolean", default: false, describe: "Use file-level UI-style interactive export (no function symbols yet)" })
@@ -60,8 +64,8 @@ async function main() {
         return;
       } else {
         // Detailed symbol-level graph build via LSP (best-effort)
-        console.error('Building symbol-level graph (may take a while)...');
-  const symGraph = await buildSymbolGraph(fileIds, tsClient, { collapse:false });
+    console.error('Building symbol-level graph (may take a while)...');
+  const symGraph = await buildSymbolGraph(fileIds, tsClient, { collapse:false, maxDepth: argv.maxDepth||0, includeImpl: argv.impl!==false });
   // Reuse existing file-level import edges (gd.edges) so relationships (arrows) appear like UI.
   if (gd.edges?.length) {
     const idIndex = new Map(symGraph.files.map(f=> [f.path.replace(/\\/g,'/'), f.id] as const));

@@ -3,10 +3,12 @@ import { Graph, File, Symbol, Relation, RelationKind } from './ui-graph-types.js
 import { instance as vizInstance } from '@viz-js/viz';
 import { escapeHtml } from './ui-utils.js';
 import { convertToHierarchy, buildSubgraphTree, emitSubgraphDOT, HierNode as FileHierNode } from './ui-file-graph.js';
+// (We previously attempted to use convertUiGraph + viz.renderSVGElement for parity, but
+// encountered DOMParser strict parsing issues in Node. We now stick with DOT path.)
 import { URI } from 'vscode-uri';
 // Directly reuse / port UI graphviz conversion pieces for parity
 
-export interface BuildSymbolGraphOptions { collapse:boolean; }
+export interface BuildSymbolGraphOptions { collapse:boolean; maxDepth?:number; includeImpl?:boolean; }
 
 // 1. Build symbol-level Graph via LSP (files + symbols + relations)
 export async function buildSymbolGraph(files:string[], client:LspClient, opts:BuildSymbolGraphOptions): Promise<Graph> {
@@ -96,7 +98,8 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
       const targetSym = findSymbol(fileId, selStart);
       return { fileId, targetSym, pos: selStart };
     }
-    async function processSymbol(f:File, sym:Symbol){
+    async function processSymbol(f:File, sym:Symbol, depth=0){
+      if (opts.maxDepth && depth>opts.maxDepth) return;
       if (!isCallLike(sym.kind)) return;
       let items = await client.prepareCallHierarchy(f.path, sym.range.start) || [];
       if (!items.length) {
@@ -108,10 +111,10 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
       if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] prepare ${f.path} line=${sym.range.start.line} got=${items.length}`);
       const head = items.find((it:any)=> samePos(it.selectionRange?.start, sym.range.start)) || items[0];
       if (!head) return;
-      await resolveIncoming(head, f, sym);
-      await resolveOutgoing(head, f, sym);
+      await resolveIncoming(head, f, sym, depth);
+      await resolveOutgoing(head, f, sym, depth);
     }
-    async function resolveIncoming(head:any, f:File, sym:Symbol){
+    async function resolveIncoming(head:any, f:File, sym:Symbol, depth:number){
       const incoming = await client.incomingCalls(head) || [];
       if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] incoming ${incoming.length} for ${f.path}#${sym.range.start.line}`);
       for (const call of incoming) {
@@ -129,11 +132,11 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
         if (!visitedIncoming.has(visitKey) && targetSym) {
           visitedIncoming.add(visitKey);
           const parentFile = fileObjs.find(ff=> ff.id===fileId);
-          if (parentFile) await processSymbol(parentFile, targetSym);
+      if (parentFile) await processSymbol(parentFile, targetSym, depth+1);
         }
       }
     }
-    async function resolveOutgoing(head:any, f:File, sym:Symbol){
+    async function resolveOutgoing(head:any, f:File, sym:Symbol, depth:number){
       const outgoing = await client.outgoingCalls(head) || [];
       if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] outgoing ${outgoing.length} for ${f.path}#${sym.range.start.line}`);
       for (const call of outgoing) {
@@ -151,16 +154,46 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
         if (!visitedOutgoing.has(visitKey) && targetSym) {
           visitedOutgoing.add(visitKey);
           const parentFile = fileObjs.find(ff=> ff.id===fileId);
-          if (parentFile) await processSymbol(parentFile, targetSym);
+          if (parentFile) await processSymbol(parentFile, targetSym, depth+1);
         }
       }
     }
     for (const f of fileObjs) {
       for (const sym of iterateSymbols(f.symbols)) {
-        await processSymbol(f, sym);
+        await processSymbol(f, sym, 0);
       }
     }
-    if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] call relations=${relations.length}`);
+    const callCount = relations.length;
+    // Interface implementation edges (Impl)
+    if (opts.includeImpl !== false) {
+      for (const f of fileObjs) {
+      for (const sym of iterateSymbols(f.symbols)) {
+        if (sym.kind !== 11 /* interface */) continue;
+        // Query implementations
+        let impls = await client.implementations(f.path, sym.range.start) || [];
+        if (impls && !Array.isArray(impls)) impls = [impls];
+        if (!impls.length) continue;
+        for (const loc of impls) {
+          try {
+            const uriObj = (loc.uri) ? loc : (loc.targetUri ? loc : undefined);
+            let uri = '';
+            let selRange:any;
+            if (uriObj && 'uri' in uriObj) { uri = uriObj.uri; selRange = uriObj.range || uriObj.selectionRange; }
+            else if ('targetUri' in loc) { uri = loc.targetUri; selRange = loc.targetSelectionRange || loc.targetRange; }
+            if (!uri || !selRange?.start) continue;
+            const { fileId, targetSym, pos } = mapEndpoint(selRange.start, uri);
+            if (fileId==null) continue;
+            const toLine = targetSym? targetSym.range.start.line : pos.line;
+            const toChar = targetSym? targetSym.range.start.character : pos.character;
+            const key = `${f.id}:${sym.range.start.line}_${sym.range.start.character}->${fileId}:${toLine}_${toChar}:impl`;
+            if (dedup.has(key)) continue; dedup.add(key);
+            relations.push({ from:{ fileId:f.id, line:sym.range.start.line, character:sym.range.start.character }, to:{ fileId, line:toLine, character:toChar }, kind:RelationKind.Impl });
+          } catch {/* ignore single impl error */}
+        }
+      }
+      }
+    }
+    if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] call relations=${callCount} impl relations=${relations.length-callCount} total=${relations.length}`);
   }
   return { files: fileObjs, relations };
 }
@@ -227,12 +260,16 @@ export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean): s
   });
   const sub = buildSubgraphTree(nodes as unknown as FileHierNode[], '');
   const edges = collectEdges(graph.relations, collapse);
+  if ((process.env.CRV_DEBUG||'').includes('dot')) console.error(`[sym] edges collected=${edges.length}`);
   const out:string[] = [];
   out.push('digraph G {');
   out.push('rankdir=LR;');
   out.push('ranksep=2.0;');
   out.push('fontsize=16; fontname="Arial";');
+  out.push('node [fontsize=16 fontname="Arial" shape=plaintext style=filled];');
+  out.push('edge [arrowsize=1.5 label=" "];');
   if (sub) emitSubgraphDOT(sub, out, { v:0 }); else nodes.forEach(n=> out.push(`${n.id} [id="${n.id}" label=<${n.labelHtml}> shape=plaintext style=filled]`));
+  if ((process.env.CRV_DEBUG||'').includes('dot')) out.push('// EDGES-BEGIN');
   for (const e of edges){
     const attrs = [`id="${e.id}"`];
     if (e.tailport) attrs.push(`tailport="${e.tailport}"`);
@@ -240,6 +277,7 @@ export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean): s
     if (e.class) attrs.push(`class="${e.class}"`);
     out.push(`${e.tail} -> ${e.head} [${attrs.join(' ')} label=" "];`);
   }
+  if ((process.env.CRV_DEBUG||'').includes('dot')) out.push('// EDGES-END');
   out.push('}');
   const dot = out.join('\n');
   if ((process.env.CRV_DEBUG||'').includes('dot')) console.error('SYMBOL DOT\n'+dot.slice(0,2000));
@@ -253,11 +291,26 @@ interface Edge { tail:string; head:string; id:string; tailport?:string; headport
 
 // (file-level node construction reused instead of custom implementation)
 function symbolToCell(fileId:number, s:Symbol): string {
+  // Mirror webview-ui/src/graph/graphviz.ts symbol2cell logic (icons + nested tables)
+  const text = escapeHtml(s.name);
   const port = `${s.range.start.line}_${s.range.start.character}`;
-  const baseId = `${fileId}:${port}`;
   const href = `HREF="${s.kind}"`;
-  if (!s.children.length) return `<TR><TD PORT="${port}" ID="${baseId}" ${href}>${escapeHtml(s.name)}</TD></TR>`;
-  return `<TR><TD CELLPADDING="0"><TABLE ID="${baseId}" ${href} BORDER="0" CELLSPACING="8" CELLPADDING="4" CELLBORDER="0"><TR><TD PORT="${port}">${escapeHtml(s.name)}</TD></TR>${s.children.map(c=>symbolToCell(fileId,c)).join('\n')}</TABLE></TD></TR>`;
+  let icon = '';
+  switch (s.kind) {
+    case 5: icon = 'C'; break; // CLASS
+    case 23: icon = 'S'; break; // STRUCT
+    case 10: icon = 'E'; break; // ENUM
+    case 26: icon = 'T'; break; // TYPE_PARAMETER
+    case 8: icon = 'f'; break; // FIELD
+    case 7: icon = 'p'; break; // PROPERTY
+    default: break;
+  }
+  if (icon.length>0) icon = `<B>${icon}</B>  `;
+  const baseId = `${fileId}:${port}`;
+  if (!s.children.length) {
+    return `<TR><TD PORT="${port}" ID="${baseId}" ${href} BGCOLOR="blue">${icon}${text}</TD></TR>`;
+  }
+  return `<TR><TD CELLPADDING="0"><TABLE ID="${baseId}" ${href} BORDER="0" CELLSPACING="8" CELLPADDING="4" CELLBORDER="0" BGCOLOR="green"><TR><TD PORT="${port}">${icon}${text}</TD></TR>${s.children.map(c=>symbolToCell(fileId,c)).join('\n')}</TABLE></TD></TR>`;
 }
 // Removed local tree + prefix implementations in favor of reuse.
 function collectEdges(rel:Relation[], collapse:boolean):Edge[]{ if(!collapse) return rel.map(r=> ({ tail:`${r.from.fileId}`, head:`${r.to.fileId}`, id:`${r.from.fileId}:${r.from.line}_${r.from.character}-${r.to.fileId}:${r.to.line}_${r.to.character}`, tailport:`${r.from.line}_${r.from.character}`, headport:`${r.to.line}_${r.to.character}`, class: r.kind===RelationKind.Impl?'impl':undefined })); const m=new Map<string,Edge>(); for(const r of rel){ const tail = r.from.fileId.toString(); const head = r.to.fileId.toString(); const cls = r.kind===RelationKind.Impl?'impl':undefined; const id=`${tail}:${cls||''}-${head}:`; if(!m.has(id)) m.set(id,{tail,head,id, class:cls}); } return Array.from(m.values()); }
@@ -268,12 +321,23 @@ export async function renderSymbolGraph(graph:Graph, root:string, collapse:boole
     const { JSDOM } = await import('jsdom');
     const { window } = new JSDOM('<!doctype html><html><body></body></html>');
     Object.assign(globalThis, { window, document: window.document });
+    if (!(globalThis as any).DOMParser && (window as any).DOMParser) {
+      (globalThis as any).DOMParser = (window as any).DOMParser;
+    }
   }
   const viz = await vizInstance();
   const dot = symbolGraphToDot(graph, root, collapse);
-  const svgText:string = await viz.renderString(dot,{ format:'svg', engine:'dot' } as any);
-  const container = document.createElement('div'); container.innerHTML = svgText.replace(/<\?xml[^>]*>/g,'');
-  const svg = container.querySelector('svg'); if(!svg) throw new Error('No svg');
+  let svg: any;
+  try {
+    const svgText: string = await (viz as any).renderString(dot, { format:'svg', engine:'dot' });
+    const container = (globalThis as any).document.createElement('div');
+    container.innerHTML = svgText.replace(/<\?xml[^>]*>/,'');
+    svg = container.querySelector('svg');
+    if (!svg) throw new Error('No <svg> element produced');
+  } catch (e:any) {
+    console.error('[sym] renderString failed:', e?.message||e);
+    throw e;
+  }
   postProcess(svg as any);
   return svg as any;
 }
@@ -300,4 +364,24 @@ function postProcess(svg:SVGSVGElement){
   const defs = svg.ownerDocument!.createElementNS('http://www.w3.org/2000/svg','defs'); defs.innerHTML='<filter id="shadow"><feDropShadow dx="0" dy="0" stdDeviation="4" flood-opacity="0.5"></filter><linearGradient id="highlightGradient"><stop offset="0%" stop-color="var(--edge-incoming-color)"/><stop offset="100%" stop-color="var(--edge-outgoing-color)"/></linearGradient>'; svg.appendChild(defs);
 }
 function classifyKind(g:Element, k:number){ switch(k){ case 2: g.classList.add('module'); break; case 12: g.classList.add('function'); break; case 6: g.classList.add('method'); break; case 9: g.classList.add('constructor'); break; case 11: g.classList.add('interface'); break; case 8: g.classList.add('field'); break; case 7: g.classList.add('property'); break; case 5: g.classList.add('class'); break; case 10: g.classList.add('enum'); break; /* struct custom? */ default: break; } }
-function polygon2rect(pg:SVGPolygonElement): SVGRectElement { const r=pg.ownerDocument!.createElementNS('http://www.w3.org/2000/svg','rect'); try { if(pg && (pg as any).points && pg.points.length>=3){ const p0=pg.points[0]; const p2=pg.points[2]; r.setAttribute('x', Math.min(p0.x,p2.x).toString()); r.setAttribute('y', Math.min(p0.y,p2.y).toString()); r.setAttribute('width', Math.abs(p0.x-p2.x).toString()); r.setAttribute('height', Math.abs(p0.y-p2.y).toString()); } else { r.setAttribute('x','0'); r.setAttribute('y','0'); r.setAttribute('width','0'); r.setAttribute('height','0'); } } catch { r.setAttribute('x','0'); r.setAttribute('y','0'); r.setAttribute('width','0'); r.setAttribute('height','0'); } return r; }
+function polygon2rect(pg:SVGPolygonElement): SVGRectElement {
+  const r = pg.ownerDocument!.createElementNS('http://www.w3.org/2000/svg','rect');
+  try {
+    // jsdom does not populate polygon.points; parse the attribute instead.
+    const attr = pg.getAttribute('points') || '';
+    const coords = attr.trim().split(/\s+/).map(pair=> pair.split(',').map(Number)).filter(a=> a.length===2 && !isNaN(a[0]) && !isNaN(a[1]));
+    if (coords.length >= 2) {
+      let minx=coords[0][0], maxx=coords[0][0], miny=coords[0][1], maxy=coords[0][1];
+      for (const [x,y] of coords) { if (x<minx) minx=x; if (x>maxx) maxx=x; if (y<miny) miny=y; if (y>maxy) maxy=y; }
+      r.setAttribute('x', String(minx));
+      r.setAttribute('y', String(miny));
+      r.setAttribute('width', String(maxx-minx));
+      r.setAttribute('height', String(maxy-miny));
+    } else {
+      r.setAttribute('x','0'); r.setAttribute('y','0'); r.setAttribute('width','0'); r.setAttribute('height','0');
+    }
+  } catch {
+    r.setAttribute('x','0'); r.setAttribute('y','0'); r.setAttribute('width','0'); r.setAttribute('height','0');
+  }
+  return r;
+}
