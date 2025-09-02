@@ -1,6 +1,7 @@
 import { LspClient } from './lsp-manager.js';
 import { Graph, File, Symbol, Relation, RelationKind } from './ui-graph-types.js';
 import { instance as vizInstance } from '@viz-js/viz';
+import { applyTransform } from './ui-svg-transform.js';
 import { escapeHtml } from './ui-utils.js';
 import { convertToHierarchy, buildSubgraphTree, emitSubgraphDOT, HierNode as FileHierNode, getLayoutConfig } from './ui-file-graph.js';
 // (We previously attempted to use convertUiGraph + viz.renderSVGElement for parity, but
@@ -45,9 +46,25 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
   let maxDepthSeen = 0;
   if (!opts.skipCalls && !opts.collapse) {
     const osIsWin = process.platform==='win32';
-    const normalize = (p:string)=> { if (osIsWin && /^\/[A-Za-z]:\//.test(p)) return p.slice(1).replace(/\\/g,'/'); return p.replace(/\\/g,'/'); };
+    const normalize = (p:string)=> {
+      let n = p.replace(/\\/g,'/');
+      if (osIsWin && /^\/[A-Za-z]:\//.test(n)) n = n.slice(1); // unify /C:/path -> C:/path
+      return n;
+    };
+    const withLeadingSlash = (p:string)=> (osIsWin && /^[A-Za-z]:\//.test(p) ? '/' + p : p);
     const caseKey = (p:string)=> osIsWin? p.toLowerCase():p;
-    const idByCase = new Map<string, number>(); for (const [p,id] of idBy) idByCase.set(caseKey(p), id);
+    const idByCase = new Map<string, number>();
+    for (const [p,id] of idBy) {
+      const n = normalize(p);
+      idByCase.set(caseKey(n), id);
+      const alt = withLeadingSlash(n); if (alt!==n) idByCase.set(caseKey(alt), id);
+      // Windows uppercase drive variant
+      if (osIsWin && /^[A-Za-z]:\//.test(n)) {
+        const up = n[0].toUpperCase() + n.slice(1);
+        idByCase.set(caseKey(up), id);
+        const upAlt = withLeadingSlash(up); if (upAlt!==up) idByCase.set(caseKey(upAlt), id);
+      }
+    }
     const flatByFile = new Map<number, Symbol[]>();
     for (const f of fileObjs){ const arr:Symbol[]=[]; for (const s of iterateSymbols(f.symbols)) if (isCallLike(s.kind)) arr.push(s); flatByFile.set(f.id, arr); }
     function findSymbol(fileId:number, pos:{line:number;character:number}): Symbol|undefined {
@@ -97,11 +114,33 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
       if (visited.has(key)) return; visited.add(key);
       let items = await probePrepare(file, sym);
       for (const item of items){
-        const incoming = await client.incomingCalls(item) || [];
+  const incoming = await client.incomingCalls(item) || [];
         for (const call of incoming){
           const ep = call.from; if (!ep?.uri || !ep.selectionRange?.start) continue;
-          const rawPath = ep.uri.path||ep.uri; const normPath = normalize(String(rawPath));
-          const srcFileId = idByCase.get(caseKey(normPath)); if (srcFileId==null) continue;
+          let srcFileId: number | undefined;
+          try {
+            let uriStr: string;
+            if (typeof ep.uri === 'string') uriStr = ep.uri; else if (ep.uri?.path) uriStr = ep.uri.path; else uriStr = String(ep.uri);
+            if (/^file:\/\//i.test(uriStr)) {
+              const parsed = URI.parse(uriStr);
+              const fsPath = parsed.fsPath; // native path
+              const norm = normalize(fsPath);
+              for (const v of [norm, withLeadingSlash(norm)]) { const id = idByCase.get(caseKey(v)); if (id!=null){ srcFileId = id; break; } }
+            } else {
+              let raw = uriStr;
+              try { raw = decodeURI(uriStr); } catch {/* ignore */}
+              raw = raw.replace(/^file:\/+/, '');
+              if (/^\/[A-Za-z]:\//.test(raw)) raw = raw.slice(1);
+              const norm = normalize(raw);
+              for (const v of [norm, withLeadingSlash(norm)]) { const id = idByCase.get(caseKey(v)); if (id!=null){ srcFileId = id; break; } }
+            }
+          } catch {/* ignore */}
+          if (srcFileId==null) {
+            if ((process.env.CRV_DEBUG||'').includes('calls')) {
+              try { console.error('[calls] unmatched incoming uri', JSON.stringify(ep.uri)); } catch {}
+            }
+            continue;
+          }
           const sel = ep.selectionRange.start;
           let fromSym = findSymbol(srcFileId, sel);
           if (!fromSym){
@@ -118,6 +157,38 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
           await traverseFunc(srcFileId, fromSym, depth+1);
           if (relations.length >= REL_CAP) return;
         }
+        // Supplement with outgoing calls if we still have only intra-file edges for this symbol (attempt to capture cross-file)
+        if (relations.filter(r=> r.to.fileId!==r.from.fileId).length===0) {
+          try {
+            const outgoing = await client.outgoingCalls(item) || [];
+            for (const oc of outgoing){
+              const ep = oc.to; if (!ep?.uri || !ep.selectionRange?.start) continue;
+              let dstFileId: number | undefined;
+              try {
+                let uriStr: string;
+                if (typeof ep.uri === 'string') uriStr = ep.uri; else if (ep.uri?.path) uriStr = ep.uri.path; else uriStr = String(ep.uri);
+                if (/^file:\/\//i.test(uriStr)) {
+                  const parsed = URI.parse(uriStr);
+                  const fsPath = parsed.fsPath; const norm = normalize(fsPath);
+                  for (const v of [norm, withLeadingSlash(norm), norm[0]?.toUpperCase()+norm.slice(1)]) { const id = idByCase.get(caseKey(v)); if (id!=null){ dstFileId = id; break; } }
+                } else {
+                  let raw = uriStr; try { raw = decodeURI(uriStr); } catch {}
+                  raw = raw.replace(/^file:\/+/, ''); if (/^\/[A-Za-z]:\//.test(raw)) raw = raw.slice(1);
+                  const norm = normalize(raw);
+                  for (const v of [norm, withLeadingSlash(norm), norm[0]?.toUpperCase()+norm.slice(1)]) { const id = idByCase.get(caseKey(v)); if (id!=null){ dstFileId = id; break; } }
+                }
+              } catch {}
+              if (dstFileId==null) continue;
+              const sel = ep.selectionRange.start;
+              const fromKey = `${fileId}:${sym.range.start.line}_${sym.range.start.character}`;
+              const edgeKey = `${fromKey}->${dstFileId}:${sel.line}_${sel.character}`;
+              if (!dedup.has(edgeKey)) {
+                dedup.add(edgeKey);
+                relations.push({ from:{ fileId, line:sym.range.start.line, character:sym.range.start.character }, to:{ fileId:dstFileId, line:sel.line, character:sel.character }, kind:RelationKind.Call, _depth:depth });
+              }
+            }
+          } catch {/* ignore */}
+        }
       }
     }
     for (const f of fileObjs){
@@ -128,8 +199,8 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
       console.error(`[sym] traversal relations=${relations.length} crossFile=${cross}`);
     }
   }
-    // Naive Python fallback if LSP produced no relations
-    if (!opts.skipCalls && relations.length===0 && fileObjs.some(f=> /\.py$/i.test(f.path))) {
+  // Naive Python fallback (augment even if we already have some relations) to approximate cross-file calls when LSP omits them
+  if (!opts.skipCalls && fileObjs.some(f=> /\.py$/i.test(f.path))) {
       try {
         const pyFiles = fileObjs.filter(f=> /\.py$/i.test(f.path));
         const fs = await import('node:fs/promises');
@@ -174,7 +245,7 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
             }
           }
         }
-        if (!process.env.CRV_QUIET) console.error(`[sym] python-fallback relations=${relations.length}`);
+  if (!process.env.CRV_QUIET) console.error(`[sym] python-fallback augment totalRelations=${relations.length}`);
       } catch (e){ if ((process.env.CRV_DEBUG||'').includes('sym')) console.error('[sym] python-fallback error', e); }
     }
   // Optionally trim the deepest recorded depth (drop relations only at deepest level)
@@ -333,8 +404,10 @@ export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean, sy
   const nodes: GraphNode[] = baseNodes.map(n=> {
     const f = fileById.get(n.id)!;
     if (!f.symbols.length || symbolDepth<=0) return { id:n.id, dir:n.dir, labelHtml:n.labelHtml };
-    const headerMatch = /<TABLE[^>]*>(<TR><TD HREF=[^]*?<\/TR>)/.exec(n.labelHtml);
-    const headerRow = headerMatch ? headerMatch[1] : `<TR><TD HREF="${f.path}" WIDTH="230" BORDER="0" CELLPADDING="6">${escapeHtml(f.path.split(/[/\\]/).pop()||'')}</TD></TR>`;
+  const headerMatch = /<TABLE[^>]*>(<TR><TD HREF=[^]*?<\/TR>)/.exec(n.labelHtml);
+  // Use raw file path (no leading slash) so click -> open resolves correctly on Windows
+  const rawPath = f.path.replace(/\\/g,'/');
+  const headerRow = headerMatch ? headerMatch[1] : `<TR><TD HREF="${rawPath}" DATA-FULLPATH="${rawPath}" WIDTH="230" BORDER="0" CELLPADDING="6">${escapeHtml(f.path.split(/[/\\]/).pop()||'')}</TD></TR>`;
     const symRows = f.symbols.map(s=> symbolToCellDepth(f.id,s,1,symbolDepth, collapse)).filter(Boolean).join('\n');
     const rebuilt = `<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="8" CELLPADDING="4">\n${headerRow}\n${symRows}\n<TR><TD CELLSPACING="0" HEIGHT="1" WIDTH="1" FIXEDSIZE="TRUE" STYLE="invis"></TD></TR>\n</TABLE>`;
     return { id:n.id, dir:n.dir, labelHtml:rebuilt };
@@ -353,7 +426,10 @@ export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean, sy
   if (sub) emitSubgraphDOT(sub, out, { v:0 }); else nodes.forEach(n=> out.push(`${n.id} [id="${n.id}" label=<${n.labelHtml}> shape=plaintext style=filled]`));
   const isTB = (cfg.rankdir||'LR') === 'TB';
   for (const e of edges){
-    const attrs = [`id="${e.id}"`];
+    // Ensure edge id matches webview pattern: fromCell-toCell when ports present
+    let edgeId = e.id;
+    if (e.tailport && e.headport) edgeId = `${e.tail}:${e.tailport}-${e.head}:${e.headport}`;
+    const attrs = [`id="${edgeId}"`];
     if (e.class) attrs.push(`class="${e.class}"`);
     const sameNode = e.tail === e.head && e.tailport && e.headport && (!e.class || e.class!=='impl');
     if (e.tailport || e.headport) {
@@ -394,7 +470,17 @@ export async function renderSymbolGraph(graph:Graph, root:string, collapse:boole
   }
   const viz = await vizInstance();
   try {
-    const svgEl = viz.renderSVGElement(dot);
+    const svgEl = viz.renderSVGElement(dot) as any;
+    // Need real DOM for transformation
+    if (!(globalThis as any).document?.createElementNS) {
+      try {
+        const { JSDOM } = require('jsdom');
+        const { window } = new JSDOM('<!doctype html><html><body></body></html>');
+        (globalThis as any).window = window;
+        (globalThis as any).document = window.document;
+      } catch {/* ignore */}
+    }
+    try { applyTransform(svgEl, null); } catch {/* ignore transform errors */}
     return { outerHTML: svgEl.outerHTML || String(svgEl) } as any;
   } catch {
     const svgText = await (viz as any).renderString(dot, { format:'svg', engine:'dot' });
