@@ -25,7 +25,7 @@ Resolution Stage 1 limitations:
 """
 
 from __future__ import annotations
-import argparse, ast, json, os, sys, time
+import argparse, ast, json, os, sys, time, hashlib, builtins
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -244,9 +244,13 @@ def scan_file(root: str, path: str, max_file_size: int):
         return None, 'parse'
 
 
-def iter_py_files(root: str):
+def iter_py_files(root: str, skip_dirs: List[str]):
+    skip_set = {s.rstrip('/').rstrip('\\') for s in skip_dirs}
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
+        dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS and d not in skip_set]
+        # Quick skip: if any skip pattern contained as component
+        if any(part in skip_set for part in dirpath.replace('\\','/').split('/')):
+            continue
         for fn in filenames:
             if fn.endswith('.py'):
                 yield os.path.join(dirpath, fn)
@@ -257,6 +261,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument('--root', default='.', help='Root directory to scan')
     ap.add_argument('--out', help='Write JSON output to file')
     ap.add_argument('--max-file-size', type=int, default=1_000_000, help='Skip files larger than this (bytes)')
+    ap.add_argument('--workers', type=int, default=1, help='Worker processes for parallel parsing')
+    ap.add_argument('--skip-dir', action='append', default=[], help='Directory name to skip (repeatable)')
+    ap.add_argument('--cache-file', help='Path to incremental cache JSON (read & update)')
+    ap.add_argument('--hash-mode', choices=['stat','sha1'], default='stat', help='File hashing mode for cache reuse (stat=mtime:size, sha1=content digest)')
+    ap.add_argument('--ignore-builtin-unresolved', action='store_true', help='Drop unresolved calls whose name matches a Python builtin')
     args = ap.parse_args(argv)
 
     root = os.path.abspath(args.root)
@@ -268,22 +277,153 @@ def main(argv: Optional[List[str]] = None) -> int:
     skipped_size = 0
     skipped_parse = 0
 
-    for path in iter_py_files(root):
-        scanner, reason = scan_file(root, path, args.max_file_size)
-        if scanner is None:
-            if reason == 'size':
-                skipped_size += 1
-            else:
-                skipped_parse += 1
-            continue
-        files_processed += 1
-        functions.extend(scanner.functions)
-        edges.extend(scanner.edges)
-        unresolved.extend(scanner.unresolved)
-        # Record unresolved entries that look like external references (contain a dot and not local)
-        for u in scanner.unresolved:
-            if '.' in u.name and not u.name.startswith(scanner.module + '.'):
-                imported_candidates.append((u.caller, u.name))
+    file_hashes: Dict[str,str] = {}
+    paths = list(iter_py_files(root, args.skip_dir))
+
+    # Incremental cache load (structure: cache_units[file_rel] = {hash, functions, edges, unresolved_calls})
+    prev_cache_units: Dict[str, dict] = {}
+    cache_units: Dict[str, dict] = {}
+    reused_files = reused_functions = reused_edges = reused_unresolved = 0
+    cache_pruned = 0
+    prev_hash_mode = None
+    if args.cache_file and os.path.exists(args.cache_file):
+        try:
+            with open(args.cache_file, 'r', encoding='utf-8') as cf:
+                prev = json.load(cf)
+            prev_cache_units = prev.get('cache_units', {}) or {}
+            prev_hash_mode = prev.get('hash_mode')
+        except Exception:
+            prev_cache_units = {}
+
+    # Precompute stat-hash for all paths so we can decide reuse without parsing
+    def compute_hash(p: str) -> str:
+        if args.hash_mode == 'stat':
+            try:
+                st = os.stat(p)
+                return f"{int(st.st_mtime)}:{st.st_size}"
+            except OSError:
+                return '0:0'
+        # sha1 mode
+        try:
+            h = hashlib.sha1()
+            with open(p, 'rb') as f:
+                while True:
+                    chunk = f.read(8192)
+                    if not chunk:
+                        break
+                    h.update(chunk)
+            return h.hexdigest()
+        except Exception:
+            return '0'
+
+    # Paths to actually parse this run
+    to_parse: List[Tuple[str,str]] = []  # (abs_path, hash)
+    for p in paths:
+        rel = os.path.relpath(p, root).replace('\\','/')
+        h = compute_hash(p)
+        unit = prev_cache_units.get(rel)
+        # Only reuse if hash matches AND hash mode identical (or cache lacked mode but current is stat for backward compat)
+        if unit and unit.get('hash') == h and (prev_hash_mode in (None, args.hash_mode) or (prev_hash_mode is None and args.hash_mode=='stat')):
+            # Reuse unit contents
+            file_hashes[rel] = h
+            cache_units[rel] = unit
+            reused_files += 1
+            f_list = unit.get('functions', [])
+            e_list = unit.get('edges', [])
+            u_list = unit.get('unresolved_calls', [])
+            reused_functions += len(f_list)
+            reused_edges += len(e_list)
+            reused_unresolved += len(u_list)
+            for f in f_list:
+                try:
+                    functions.append(FunctionInfo(**f))
+                except TypeError:
+                    # schema drift safeguard
+                    pass
+            for e in e_list:
+                try:
+                    edges.append(Edge(**e))
+                except TypeError:
+                    pass
+            for u in u_list:
+                try:
+                    unresolved.append(UnresolvedCall(**u))
+                except TypeError:
+                    pass
+        else:
+            to_parse.append((p,h))
+
+    # If everything reused we can skip scanning entirely
+    if not to_parse:
+        files_processed = reused_files  # all reused
+        # Build output directly later (skip parsing section below)
+    
+    if to_parse:
+        # Optional concurrency for remaining files
+        edge_cap = int(os.getenv('CRV_PY_EDGE_CAP') or 0) or None
+        def process(path:str):
+            scanner, reason = scan_file(root, path, args.max_file_size)
+            if scanner is None:
+                return path, reason, None
+            # hash already computed pre; but recompute to remain robust
+            try:
+                st = os.stat(path)
+                h2 = f"{int(st.st_mtime)}:{st.st_size}"
+            except OSError:
+                h2 = '0:0'
+            return path, None, (scanner, h2)
+        results = []
+        parse_paths = [p for p,_ in to_parse]
+        if args.workers and args.workers > 1:
+            try:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                with ThreadPoolExecutor(max_workers=args.workers) as ex:
+                    futs = { ex.submit(process, p): p for p in parse_paths }
+                    for fut in as_completed(futs):
+                        try:
+                            results.append(fut.result())
+                        except Exception:
+                            results.append((futs[fut],'parse',None))
+            except Exception:
+                results = [process(p) for p in parse_paths]
+        else:
+            results = [process(p) for p in parse_paths]
+
+        for path, reason, payload in results:
+            rel = os.path.relpath(path, root).replace('\\','/')
+            if payload is None:
+                if reason == 'size': skipped_size += 1
+                else: skipped_parse += 1
+                continue
+            scanner, h = payload
+            file_hashes[rel] = h
+            files_processed += 1
+            functions.extend(scanner.functions)
+            edges.extend(scanner.edges)
+            unresolved.extend(scanner.unresolved)
+            # Build unit for cache
+            cache_units[rel] = {
+                'hash': h,
+                'functions': [fi.__dict__ for fi in scanner.functions],
+                'edges': [e.__dict__ for e in scanner.edges],
+                'unresolved_calls': [u.__dict__ for u in scanner.unresolved],
+            }
+            for u in scanner.unresolved:
+                if '.' in u.name and not u.name.startswith(scanner.module + '.'):
+                    imported_candidates.append((u.caller, u.name))
+            if edge_cap and len(edges) >= edge_cap:
+                break
+
+    # Ensure reused units are represented in cache_units for output
+    if prev_cache_units:
+        # Prune entries for files that disappeared
+        for rel in list(prev_cache_units.keys()):
+            if rel not in {os.path.relpath(p, root).replace('\\','/') for p in paths}:
+                cache_pruned += 1
+        # Ensure reused units are in cache units already (done during reuse loop)
+        for rel, unit in prev_cache_units.items():
+            if rel not in cache_units and rel in file_hashes:
+                cache_units[rel] = unit
 
     out = {
         'engine': 'static-pyscan',
@@ -295,18 +435,78 @@ def main(argv: Optional[List[str]] = None) -> int:
         'functions': [fi.__dict__ for fi in functions],
         'edges': [e.__dict__ for e in edges],
         'unresolved_calls': [u.__dict__ for u in unresolved],
+        'file_hashes': file_hashes,
+        'workers': args.workers,
     }
+
+    if args.cache_file:
+        out['cache_units'] = cache_units
+        out['cache'] = {
+            'reused_files': reused_files,
+            'reused_functions': reused_functions,
+            'reused_edges': reused_edges,
+            'reused_unresolved': reused_unresolved,
+            'parsed_files': files_processed - reused_files,
+            'pruned_files': cache_pruned,
+        }
+        out['hash_mode'] = args.hash_mode
 
     # Second pass: external resolution for imported function calls
     func_set = {f.qualname for f in functions}
-    new_edges = 0
+    simple_index: Dict[str, List[str]] = {}
+    for f in functions:
+        simple_index.setdefault(f.name, []).append(f.qualname)
+
+    new_edges_imported = 0
     for caller, full in imported_candidates:
         if full in func_set:
-            edges.append(Edge(caller=caller, callee=full))
-            new_edges += 1
-    if new_edges:
-        out['edges'] = [e.__dict__ for e in edges]
-        out['resolved_external'] = new_edges
+            edges.append(Edge(caller=caller, callee=full, provenance='static-cross-import'))
+            new_edges_imported += 1
+
+    # Cross-module resolution for unresolved entries
+    resolved_cross = 0
+    builtin_ignored = 0
+    builtin_names = set(dir(builtins)) if args.ignore_builtin_unresolved else set()
+    remaining_unresolved: List[UnresolvedCall] = []
+    top_modules = {f.module.split('.')[0] for f in functions if f.module}
+    for u in unresolved:
+        name = u.name.lstrip('.') if u.name else u.name
+        if args.ignore_builtin_unresolved and name in builtin_names:
+            builtin_ignored += 1
+            continue
+        target = None
+        candidates = []
+        if name:
+            candidates.append(name)
+            # If dotted but not fully qualified with top module, try prefix
+            if '.' in name:
+                for tm in top_modules:
+                    candidates.append(f"{tm}.{name}")
+        matched = None
+        for cand in candidates:
+            if cand in func_set:
+                matched = cand
+                break
+            # Fallback: suffix match (unique)
+            suffix_matches = [fq for fq in func_set if fq.endswith('.'+cand)]
+            if len(suffix_matches) == 1:
+                matched = suffix_matches[0]
+                break
+        if matched:
+            edges.append(Edge(caller=u.caller, callee=matched, provenance='static-cross-module'))
+            resolved_cross += 1
+        else:
+            remaining_unresolved.append(u)
+
+    unresolved = remaining_unresolved
+    out['unresolved_calls'] = [u.__dict__ for u in unresolved]
+    out['edges'] = [e.__dict__ for e in edges]
+    if new_edges_imported:
+        out['resolved_external'] = new_edges_imported
+    if resolved_cross:
+        out['resolved_cross_module'] = resolved_cross
+    if builtin_ignored:
+        out['ignored_builtins'] = builtin_ignored
 
     data = json.dumps(out, indent=2, sort_keys=True)
     if args.out:
@@ -314,8 +514,18 @@ def main(argv: Optional[List[str]] = None) -> int:
             f.write(data)
     else:
         print(data)
+    if args.cache_file:
+        try:
+            with open(args.cache_file, 'w', encoding='utf-8') as cf:
+                cf.write(data)
+        except Exception:
+            pass
     # Stats line for logs
-    sys.stderr.write(f"PYSCAN_STATS files={files_processed} functions={len(functions)} edges={len(edges)} unresolved={len(unresolved)}\n")
+    sys.stderr.write(
+        f"PYSCAN_STATS files={files_processed} functions={len(functions)} edges={len(edges)} "
+        f"unresolved={len(unresolved)} reused_files={reused_files} parsed_files={files_processed - reused_files} "
+        f"resolved_cross={out.get('resolved_cross_module',0)} ignored_builtins={out.get('ignored_builtins',0)} pruned={cache_pruned}\n"
+    )
     return 0
 
 

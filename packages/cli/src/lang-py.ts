@@ -6,7 +6,10 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Edge, NodeInfo } from './types.js';
 
-const importRe = /^\s*(?:from\s+([.\w]+)\s+import\s+[\w*,\s]+|import\s+([\w.]+))/gm;
+// Captures:
+//  from pkg.sub import a, b  -> group1=pkg.sub group2="a, b"
+//  import pkg.sub             -> group3=pkg.sub
+const importRe = /^\s*(?:from\s+([.\w]+)\s+import\s+([\w*,\s]+)|import\s+([\w.]+))/gm;
 
 interface ScanPyOpts { engine: 'static' | 'lsp'; }
 
@@ -92,15 +95,47 @@ export async function scanPy(
 
     let m: RegExpExecArray | null;
   while ((m = importRe.exec(text))) {
-      const spec = (m[1] || m[2])?.trim();
-      if (!spec) continue;
+    const fromMod = m[1];
+    const importedList = m[2];
+    const plainImport = m[3];
+    if (plainImport) {
+      const spec = plainImport.trim();
       let target: string | null = null;
-  if (spec.startsWith('.')) target = resolveRelativeModule(f, spec);
-  else target = resolveAbsoluteModule(spec);
-  if (!target) { if ((process.env.CRV_DEBUG||'').includes('py')) console.error(`[py] unresolved import ${spec} in ${f}`); continue; }
-  if ((process.env.CRV_DEBUG||'').includes('py')) console.error(`[py] import ${spec} -> ${target}`);
+      if (spec.startsWith('.')) target = resolveRelativeModule(f, spec);
+      else target = resolveAbsoluteModule(spec);
+      if (!target) { if ((process.env.CRV_DEBUG||'').includes('py')) console.error(`[py] unresolved import ${spec} in ${f}`); continue; }
+      if ((process.env.CRV_DEBUG||'').includes('py')) console.error(`[py] import ${spec} -> ${target}`);
       edges.push({ from: f, to: target, kind: 'import', lang: 'py' });
+      continue;
     }
+    if (fromMod) {
+      const baseSpec = fromMod.trim();
+      const names = (importedList||'').split(',').map(s=> s.trim()).filter(Boolean);
+      if (!names.length) {
+        // treat like a plain module import
+        let target: string | null = null;
+        if (baseSpec.startsWith('.')) target = resolveRelativeModule(f, baseSpec);
+        else target = resolveAbsoluteModule(baseSpec);
+        if (target) edges.push({ from: f, to: target, kind: 'import', lang: 'py' });
+        continue;
+      }
+      for (const name of names) {
+        if (name === '*') continue; // skip star imports for now
+        const fullSpec = baseSpec + '.' + name;
+        let target: string | null = null;
+        if (fullSpec.startsWith('.')) target = resolveRelativeModule(f, fullSpec);
+        else target = resolveAbsoluteModule(fullSpec);
+        // Fallback: if fullSpec unresolved, try resolving just baseSpec (package) as last resort
+        if (!target) {
+          if (baseSpec.startsWith('.')) target = resolveRelativeModule(f, baseSpec);
+          else target = resolveAbsoluteModule(baseSpec);
+        }
+        if (!target) { if ((process.env.CRV_DEBUG||'').includes('py')) console.error(`[py] unresolved from-import ${fullSpec} in ${f}`); continue; }
+        if ((process.env.CRV_DEBUG||'').includes('py')) console.error(`[py] from-import ${fullSpec} -> ${target}`);
+        edges.push({ from: f, to: target, kind: 'import', lang: 'py' });
+      }
+    }
+  }
 
   // If no edges resolved for this file and we want richer graph, attempt simple intra-package link by matching sibling imports
   // (skip if edges already found globally)
@@ -109,19 +144,36 @@ export async function scanPy(
   let staticResult: StaticAnalysisResult | undefined;
   if (opts.engine === 'static') {
     try {
+      // Allow explicit override
+      const override = process.env.CRABVIZ_PY_ANALYZER && existsSync(process.env.CRABVIZ_PY_ANALYZER) ? process.env.CRABVIZ_PY_ANALYZER : null;
       const repoRoot = resolve(roots[0]);
-      // Attempt to locate py_callscan.py walking upward from repoRoot.
       const candidates: string[] = [];
+      if (override) candidates.push(override);
+      // Walk upward from first root (may be external) just in case repo scripts dir is ancestor
       let cur = repoRoot;
-      for (let i=0;i<5;i++) { // up to 5 levels
+      for (let i=0;i<6;i++) {
         candidates.push(resolve(cur, 'scripts', 'py_callscan.py'));
         const parent = resolve(cur, '..');
-        if (parent === cur) break;
-        cur = parent;
+        if (parent === cur) break; cur = parent;
       }
-      candidates.push(resolve(process.cwd(), 'scripts', 'py_callscan.py'));
+      // Also walk upward from CLI package directory (handles external roots scenario)
+      try {
+        const here = dirname(fileURLToPath(import.meta.url));
+        let walk = here;
+        for (let i=0;i<6;i++) {
+          candidates.push(resolve(walk, '..', 'scripts', 'py_callscan.py'));
+          candidates.push(resolve(walk, 'scripts', 'py_callscan.py'));
+          const parent = resolve(walk, '..'); if (parent === walk) break; walk = parent;
+        }
+      } catch { /* ignore */ }
+      // Add typical relative patterns
+      candidates.push(resolve(process.cwd(), '..', 'scripts', 'py_callscan.py'));
+      candidates.push(resolve(process.cwd(), '..','..', 'scripts', 'py_callscan.py'));
+      // De-duplicate
+      const seen = new Set<string>();
+      const uniq = candidates.filter(c=> { const n=resolve(c); if (seen.has(n)) return false; seen.add(n); return true; });
       let scriptPath: string | null = null;
-      for (const c of candidates) { if (existsSync(c)) { scriptPath = c; break; } }
+      for (const c of uniq) { if (existsSync(c)) { scriptPath = c; break; } }
       if (scriptPath) {
         const pyCmds = ['python','py'];
         let run;
@@ -143,6 +195,33 @@ export async function scanPy(
   const mMap: Record<string,string> = {};
   for (const [mod,path] of moduleMap.entries()) mMap[mod]=path;
   staticResult = { rawJson: run.stdout, moduleMap: mMap };
+            // Collapse function-level edges to file-level call edges for inclusion in main graph now
+            try {
+              if (parsed.edges && parsed.functions) {
+                const funcToFile: Record<string,string> = {};
+                for (const fn of parsed.functions) {
+                  // Resolve module to path via moduleMap
+                  let resolved = mMap[fn.module];
+                  if (!resolved) {
+                    // fallback approximate path
+                    resolved = fn.module.split('.').join('/') + '.py';
+                  }
+                  funcToFile[fn.qualname] = resolved.replace(/\\/g,'/');
+                }
+                const added = new Set<string>();
+                for (const edge of parsed.edges) {
+                  const aFile = funcToFile[edge.caller];
+                  const bFile = funcToFile[edge.callee];
+                  if (!aFile || !bFile || aFile === bFile) continue;
+                  const key = aFile + '::' + bFile;
+                  if (added.has(key)) continue;
+                  added.add(key);
+                  edges.push({ from: aFile, to: bFile, kind: 'call', lang: 'py' });
+                }
+              }
+            } catch(e:any) {
+              console.error('[py-static] collapse edge error', e?.message||e);
+            }
           } catch (e:any) {
             console.error('[py-static] failed to parse analyzer JSON', e?.message||e);
           }
@@ -150,7 +229,9 @@ export async function scanPy(
           console.error(`[py-static] analyzer failed status=${run.status} err=${run.error||''}`);
         }
       } else {
-        console.error('[py-static] py_callscan.py not found; skipping static analysis augmentation');
+        console.error('[py-static] py_callscan.py not found; tried candidates:');
+        for (const c of uniq.slice(0,15)) console.error('  - '+c);
+        console.error('[py-static] set CRABVIZ_PY_ANALYZER env var to explicit path if needed');
       }
     } catch (e:any) {
       console.error('[py-static] error invoking analyzer', e?.message||e);

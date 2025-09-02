@@ -31,6 +31,8 @@ type Args = {
   rankdir?: string;               // layout direction (LR or TB)
   filesPerRow?: number;           // when rankdir=TB, group N files per rank row inside folder clusters
   pythonEngine?: string;          // 'auto' | 'lsp' | 'static'
+  hideImports?: boolean;          // hide import edges
+  dotOut?: string;                // write raw DOT
 };
 
 async function main() {
@@ -51,6 +53,8 @@ async function main() {
   .option("rankdir", { type: "string", choices: ["LR","TB"], describe: "Graph layout direction (LR=left-right, TB=top-bottom)", default: "LR" })
   .option("files-per-row", { type: "number", describe: "When --rankdir=TB, pack up to N file nodes per horizontal row within a folder", default: 0 })
   .option("python-engine", { type: "string", choices: ["auto","lsp","static"], default: "auto", describe: "Python analysis engine: static (AST) or lsp (pyright). auto selects static." })
+  .option("hide-imports", { type: "boolean", default: false, describe: "Hide import edges (show only call edges)" })
+  .option("dot-out", { type: "string", describe: "Also write raw DOT graph to this file (debug)" })
     .help().argv) as unknown as Args;
 
   const roots = argv.roots.map(r => resolve(String(r)));
@@ -104,14 +108,19 @@ async function main() {
         const pyFiles = fileIds.filter(f=> /\.py$/i.test(f));
         const tsFiles = fileIds.filter(f=> !/\.py$/i.test(f));
         const subGraphs: any[] = [];
-  if (tsFiles.length) subGraphs.push(await buildSymbolGraph(tsFiles, tsClient, { collapse:false, maxDepth:0, includeImpl:false, trimLastDepth: argv.trimLastDepth, skipCalls:true }));
-  if (pyFiles.length) {
-    if (pyClient) {
-      subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, { collapse:false, maxDepth:0, includeImpl:false, trimLastDepth: argv.trimLastDepth, skipCalls:true }));
-    } else if (staticPyGraph) {
-      subGraphs.push(staticPyGraph as any);
-    }
-  }
+        // Respect --call-depth: internal maxDepth collects depths 0..callDepth-1. callDepth=0 => no call edges.
+        const internalMaxDepth = callDepth <= 0 ? 0 : callDepth; // mirror detailed path semantics
+        const skipCalls = callDepth === 0;
+        if (tsFiles.length) subGraphs.push(await buildSymbolGraph(tsFiles, tsClient, { collapse:false, maxDepth: internalMaxDepth, includeImpl:false, trimLastDepth: argv.trimLastDepth, skipCalls }));
+        if (pyFiles.length) {
+          if (pyClient) {
+            subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, { collapse:false, maxDepth: internalMaxDepth, includeImpl:false, trimLastDepth: argv.trimLastDepth, skipCalls }));
+          } else if (staticPyGraph) {
+            // If static, we already have file-level collapsed call edges; strip them if callDepth=0
+            const g = skipCalls ? { files: staticPyGraph.files, relations: [] } : staticPyGraph;
+            subGraphs.push(g as any);
+          }
+        }
         // Reassign ids to keep them unique across merged graphs
         const symGraph = { files: [] as any[], relations: [] as any[] };
         let nextId = 0; const idRemap = new Map<string, number>();
@@ -251,7 +260,13 @@ async function main() {
       }
     }
 
-    const dot    = toDot(gd, argv.simplified);
+    // Optionally filter import edges
+    const filteredGd = argv.hideImports ? { nodes: gd.nodes, edges: gd.edges.filter(e=> e.kind !== 'import' && e.kind !== 'dynamic-import') } : gd;
+    const dot    = toDot(filteredGd, argv.simplified);
+    if (argv.dotOut) {
+      writeFileSync(resolve(String(argv.dotOut)), dot, 'utf8');
+      if (!argv.quiet) console.error(`[crabviz] wrote DOT ${resolve(String(argv.dotOut))}`);
+    }
 
     if (argv.renderer === "export") {
       if (argv.format === "svg") {

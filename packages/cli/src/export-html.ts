@@ -30,11 +30,22 @@ export async function emitCrabvizExportHtmlFromDot(
   // These files are produced/maintained by the export build:
   //    vite build -c webview-ui/vite-export.config.ts
   // (Your earlier build already emitted: webview-ui/src/assets/out/index.css|js)
-  const cssPath = resolve("webview-ui/src/assets/out/index.css");
-  const jsPath  = resolve("webview-ui/src/assets/out/index.js");
-
-  const css = readFileSync(cssPath, "utf8");
-  const js  = readFileSync(jsPath, "utf8");
+  function tryRead(rel:string, optional=false):string {
+    const attempts = [
+      resolve(rel),
+      resolve('..','..',rel),           // from packages/cli to repo root
+      resolve(process.cwd(), rel),
+      resolve(process.cwd(), '..','..', rel)
+    ];
+    for (const a of attempts) {
+      try { return readFileSync(a,'utf8'); } catch {}
+    }
+    if (optional) return '';
+    if (!optional) return '';
+    return '';
+  }
+  const css = tryRead("webview-ui/src/assets/out/index.css", true) || "svg.callgraph{font-family:system-ui,Arial,sans-serif;}";
+  const js  = tryRead("webview-ui/src/assets/out/index.js", true) || "export class CallGraph{constructor(svg){this.svg=svg;} setUpPanZoom(){}}";
   let svg = await dotToSvg(dot);
 
   // Ensure the root <svg> has the class expected by the interactive script.

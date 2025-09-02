@@ -1,0 +1,124 @@
+{
+  "cache": {
+    "parsed_files": 3,
+    "pruned_files": 0,
+    "reused_edges": 0,
+    "reused_files": 0,
+    "reused_functions": 0,
+    "reused_unresolved": 0
+  },
+  "cache_units": {
+    "pkg/__init__.py": {
+      "edges": [],
+      "functions": [],
+      "hash": "1756725029:53",
+      "unresolved_calls": []
+    },
+    "pkg/util.py": {
+      "edges": [],
+      "functions": [
+        {
+          "endlineno": 2,
+          "id": "pkg.util.greet",
+          "kind": "function",
+          "lineno": 1,
+          "module": "pkg.util",
+          "name": "greet",
+          "qualname": "pkg.util.greet"
+        }
+      ],
+      "hash": "1756725030:58",
+      "unresolved_calls": []
+    },
+    "pkg/worker.py": {
+      "edges": [],
+      "functions": [
+        {
+          "endlineno": 5,
+          "id": "pkg.worker.Worker.__init__",
+          "kind": "method",
+          "lineno": 4,
+          "module": "pkg.worker",
+          "name": "__init__",
+          "qualname": "pkg.worker.Worker.__init__"
+        },
+        {
+          "endlineno": 8,
+          "id": "pkg.worker.Worker.run",
+          "kind": "method",
+          "lineno": 7,
+          "module": "pkg.worker",
+          "name": "run",
+          "qualname": "pkg.worker.Worker.run"
+        }
+      ],
+      "hash": "1756725018:156",
+      "unresolved_calls": [
+        {
+          "caller": "pkg.worker.Worker.run",
+          "name": ".util.greet"
+        },
+        {
+          "caller": "pkg.worker.Worker.run",
+          "name": "str"
+        }
+      ]
+    }
+  },
+  "edges": [
+    {
+      "callee": "pkg.util.greet",
+      "caller": "pkg.worker.Worker.run",
+      "kind": "call",
+      "provenance": "static-cross-module"
+    }
+  ],
+  "engine": "static-pyscan",
+  "file_hashes": {
+    "pkg/__init__.py": "1756725029:53",
+    "pkg/util.py": "1756725030:58",
+    "pkg/worker.py": "1756725018:156"
+  },
+  "files": 3,
+  "functions": [
+    {
+      "endlineno": 2,
+      "id": "pkg.util.greet",
+      "kind": "function",
+      "lineno": 1,
+      "module": "pkg.util",
+      "name": "greet",
+      "qualname": "pkg.util.greet"
+    },
+    {
+      "endlineno": 5,
+      "id": "pkg.worker.Worker.__init__",
+      "kind": "method",
+      "lineno": 4,
+      "module": "pkg.worker",
+      "name": "__init__",
+      "qualname": "pkg.worker.Worker.__init__"
+    },
+    {
+      "endlineno": 8,
+      "id": "pkg.worker.Worker.run",
+      "kind": "method",
+      "lineno": 7,
+      "module": "pkg.worker",
+      "name": "run",
+      "qualname": "pkg.worker.Worker.run"
+    }
+  ],
+  "generated_at": "2025-09-02T20:42:27Z",
+  "hash_mode": "sha1",
+  "ignored_builtins": 1,
+  "resolved_cross_module": 1,
+  "root": "c:\\Git\\crabviz\\examples\\python",
+  "skipped": {
+    "parse": 0,
+    "size": 0
+  },
+  "unresolved_calls": [],
+  "version": 1,
+  "workers": 2
+}

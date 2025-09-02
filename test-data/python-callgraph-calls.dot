@@ -1,0 +1,15 @@
+digraph G {
+  rankdir=LR;
+  splines=true;
+  overlap=false;
+  "C:/Git/crabviz/test-data/py-sample20/pkg/__init__.py"
+  "C:/Git/crabviz/test-data/py-sample20/pkg/alpha/a.py"
+  "C:/Git/crabviz/test-data/py-sample20/pkg/beta/bmod.py"
+  "C:/Git/crabviz/test-data/py-sample20/pkg/delta/util.py"
+  "C:/Git/crabviz/test-data/py-sample20/pkg/gamma/gamma_mod.py"
+
+  "C:/Git/crabviz/test-data/py-sample20/pkg/alpha/a.py" -> "C:/Git/crabviz/test-data/py-sample20/pkg/beta/bmod.py" [color=blue,penwidth=2]
+  "C:/Git/crabviz/test-data/py-sample20/pkg/alpha/a.py" -> "C:/Git/crabviz/test-data/py-sample20/pkg/gamma/gamma_mod.py" [color=blue,penwidth=2]
+  "C:/Git/crabviz/test-data/py-sample20/pkg/beta/bmod.py" -> "C:/Git/crabviz/test-data/py-sample20/pkg/delta/util.py" [color=blue,penwidth=2]
+  "C:/Git/crabviz/test-data/py-sample20/pkg/gamma/gamma_mod.py" -> "C:/Git/crabviz/test-data/py-sample20/pkg/delta/util.py" [color=blue,penwidth=2]
+}

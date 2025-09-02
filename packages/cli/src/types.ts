@@ -5,7 +5,7 @@ export interface ProjectRoots { roots: string[]; }
 export interface Edge {
   from: string;
   to: string;
-  kind: 'import' | 'dynamic-import';
+  kind: 'import' | 'dynamic-import' | 'call';
   lang: LanguageId;
 }
 
