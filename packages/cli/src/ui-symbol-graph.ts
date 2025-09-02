@@ -76,9 +76,13 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
     const caseKey = (p:string)=> osIsWin ? p.toLowerCase() : p;
     const idByCase = new Map<string, number>();
     for (const [p,id] of idBy) idByCase.set(caseKey(p), id);
-    const dedup = new Set<string>();
-    const visitedIncoming = new Set<string>();
-    const visitedOutgoing = new Set<string>();
+  const dedup = new Set<string>();
+  const visitedIncoming = new Set<string>();
+  const visitedOutgoing = new Set<string>();
+  // Caches to avoid duplicate LSP round-trips per symbol anchor
+  const incomingCache = new Map<string, any[]>();
+  const outgoingCache = new Map<string, any[]>();
+  const headKey = (filePath:string, pos:{line:number;character:number}) => `${filePath}:${pos.line}:${pos.character}`;
     function mapEndpoint(selStart:{line:number; character:number}, rawPath:string){
       // rawPath may be a URI object or string; ensure we derive a normalized fs path
       let pathStr = '';
@@ -100,17 +104,24 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
       return { fileId, targetSym, pos: selStart };
     }
   const REL_CAP = Number(process.env.CRV_RELATION_CAP||8000);
+  let callableTotal = 0; let prepareTotal = 0; let prepareWithItems = 0; let prepareEmpty = 0;
   async function processSymbol(f:File, sym:Symbol, depth=0){
       if (opts.maxDepth !== undefined && opts.maxDepth >= 0 && depth >= opts.maxDepth) return;
       if (relations.length >= REL_CAP) return;
-      if (!isCallLike(sym.kind)) return;
-      let items = await client.prepareCallHierarchy(f.path, sym.range.start) || [];
-      if (!items.length) {
-        for (let back=1; back<=3 && !items.length; back++) {
-          const alt = { line: Math.max(0, sym.range.start.line - back), character: sym.range.start.character };
-          items = await client.prepareCallHierarchy(f.path, alt) || [];
-        }
+  if (!isCallLike(sym.kind)) return; // skip non-callable symbols to reduce traversal noise
+      callableTotal++;
+      // retry prepareCallHierarchy with slight backoff; also try nearby lines
+      const PREP_MAX = Number(process.env.CRV_PREP_MAX||5);
+      const BACKOFF_MS = Number(process.env.CRV_PREP_DELAY||180);
+      let items:any[] = [];
+      for (let attempt=0; attempt<PREP_MAX && !items.length; attempt++) {
+        const lineShift = attempt === 0 ? 0 : Math.min(3, attempt); // try up to 3 lines upwards
+        const startPos = { line: Math.max(0, sym.range.start.line - lineShift), character: sym.range.start.character };
+        try { items = await client.prepareCallHierarchy(f.path, startPos) || []; } catch { /* ignore */ }
+        if (!items.length) await new Promise(r=> setTimeout(r, BACKOFF_MS));
       }
+      prepareTotal++;
+      if (items.length) prepareWithItems++; else prepareEmpty++;
       if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] prepare ${f.path} line=${sym.range.start.line} got=${items.length}`);
       const head = items.find((it:any)=> samePos(it.selectionRange?.start, sym.range.start)) || items[0];
       if (!head) return;
@@ -118,7 +129,17 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
   await resolveOutgoing(head, f, sym, depth);
     }
   async function resolveIncoming(head:any, f:File, sym:Symbol, depth:number){
-      const incoming = await client.incomingCalls(head) || [];
+      const hk = headKey(f.path, sym.range.start);
+      let incoming:any[] | undefined = incomingCache.get(hk);
+      if (incoming === undefined) {
+        incoming = [];
+        const INC_MAX = Number(process.env.CRV_CALL_MAX||3);
+        for (let attempt=0; attempt<INC_MAX && !incoming.length; attempt++) {
+          try { incoming = await client.incomingCalls(head) || []; } catch { incoming = []; }
+          if (!incoming.length) await new Promise(r=> setTimeout(r, 120));
+        }
+        incomingCache.set(hk, incoming);
+      }
       if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] incoming ${incoming.length} for ${f.path}#${sym.range.start.line}`);
       for (const call of incoming) {
         const ep = call.from; if (!ep?.uri || !ep.selectionRange?.start) continue;
@@ -143,7 +164,17 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
       }
     }
     async function resolveOutgoing(head:any, f:File, sym:Symbol, depth:number){
-      const outgoing = await client.outgoingCalls(head) || [];
+      const hk = headKey(f.path, sym.range.start);
+      let outgoing:any[] | undefined = outgoingCache.get(hk);
+      if (outgoing === undefined) {
+        outgoing = [];
+        const OUT_MAX = Number(process.env.CRV_CALL_MAX||3);
+        for (let attempt=0; attempt<OUT_MAX && !outgoing.length; attempt++) {
+          try { outgoing = await client.outgoingCalls(head) || []; } catch { outgoing = []; }
+          if (!outgoing.length) await new Promise(r=> setTimeout(r, 120));
+        }
+        outgoingCache.set(hk, outgoing);
+      }
       if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] outgoing ${outgoing.length} for ${f.path}#${sym.range.start.line}`);
       for (const call of outgoing) {
         const ep = call.to; if (!ep?.uri || !ep.selectionRange?.start) continue;
@@ -205,6 +236,7 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
       }
     }
     if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] call relations=${callCount} impl relations=${relations.length-callCount} total=${relations.length}`);
+  if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym:stats] callable=${callableTotal} prepareTotal=${prepareTotal} prepareWithItems=${prepareWithItems} prepareEmpty=${prepareEmpty}`);
   }
   // Optionally trim the deepest recorded depth (drop relations only at deepest level)
   let finalRelations: Relation[] = relations as Relation[];
@@ -256,8 +288,8 @@ function docToSym(s:any, fileId:number, seen:Set<string>): Symbol|undefined {
 }
 function* iterateSymbols(list:Symbol[]): Iterable<Symbol>{ for(const s of list){ yield s; if(s.children.length) yield* iterateSymbols(s.children);} }
 function isCallLike(kind:number){
-  // Include broader set: function(12), method(6), constructor(9), class(5), variable(13), property(7)
-  return kind===12||kind===6||kind===9||kind===5||kind===13||kind===7;
+  // Restrict to canonical callable kinds: function(12), method(6), constructor(9)
+  return kind===12 || kind===6 || kind===9;
 }
 
 // 2. Convert Graph to DOT using same hierarchy helpers as file-level path logic
@@ -371,10 +403,10 @@ function collectEdges(rel:Relation[], collapse:boolean, depthPorts:Set<string>, 
       const fromOk = depthPorts.has(`${r.from.fileId}:${r.from.line}_${r.from.character}`);
       const toOk = depthPorts.has(`${r.to.fileId}:${r.to.line}_${r.to.character}`);
       return fromOk && toOk;
-    }).map(r=> ({ tail:`${r.from.fileId}`, head:`${r.to.fileId}`, id:`${r.from.fileId}:${r.from.line}_${r.from.character}-${r.to.fileId}:${r.to.line}_${r.to.character}`, tailport:`${r.from.line}_${r.from.character}`, headport:`${r.to.line}_${r.to.character}`, class: r.kind===RelationKind.Impl?'impl':undefined }));
+  }).map(r=> ({ tail:`${r.from.fileId}`, head:`${r.to.fileId}`, id:`${r.from.fileId}:${r.from.line}_${r.from.character}-${r.to.fileId}:${r.to.line}_${r.to.character}`, tailport:`${r.from.line}_${r.from.character}`, headport:`${r.to.line}_${r.to.character}`, class: r.kind===RelationKind.Impl?'impl': (r.provenance&& r.provenance.startsWith('static-py') ? 'static': undefined) }));
   }
   const m=new Map<string,Edge>();
-  for(const r of rel){ const tail = r.from.fileId.toString(); const head = r.to.fileId.toString(); const cls = r.kind===RelationKind.Impl?'impl':undefined; const id=`${tail}:${cls||''}-${head}:`; if(!m.has(id)) m.set(id,{tail,head,id, class:cls}); }
+  for(const r of rel){ const tail = r.from.fileId.toString(); const head = r.to.fileId.toString(); const cls = r.kind===RelationKind.Impl?'impl': (r.provenance&& r.provenance.startsWith('static-py') ? 'static': undefined); const id=`${tail}:${cls||''}-${head}:`; if(!m.has(id)) m.set(id,{tail,head,id, class:cls}); }
   return Array.from(m.values());
 }
 

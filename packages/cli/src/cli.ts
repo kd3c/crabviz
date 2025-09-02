@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { launchPyright, launchTsServer } from "./lsp-manager.js";
 import { scanTs } from "./lang-ts.js";
 import { scanPy } from "./lang-py.js";
+import { buildStaticPyGraph } from './static-py.js';
 import { mergeGraphs, toDot } from "./graph.js";
 import { dotToHtml } from "./html.js";
 import { emitCrabvizExportHtmlFromDot, emitCrabvizSvgFromDot, emitFileLevelInteractiveHtml } from "./export-html.js";
@@ -29,6 +30,7 @@ type Args = {
   symbolDepth?: number;           // limit symbol nesting depth in UI export
   rankdir?: string;               // layout direction (LR or TB)
   filesPerRow?: number;           // when rankdir=TB, group N files per rank row inside folder clusters
+  pythonEngine?: string;          // 'auto' | 'lsp' | 'static'
 };
 
 async function main() {
@@ -48,6 +50,7 @@ async function main() {
   .option("symbol-depth", { type: "number", describe: "Limit symbol nesting depth for --ui-file export. 0 = files only, 1 = files & functions, 2 = files, functions & arguments. (default: 1)", default: 1 })
   .option("rankdir", { type: "string", choices: ["LR","TB"], describe: "Graph layout direction (LR=left-right, TB=top-bottom)", default: "LR" })
   .option("files-per-row", { type: "number", describe: "When --rankdir=TB, pack up to N file nodes per horizontal row within a folder", default: 0 })
+  .option("python-engine", { type: "string", choices: ["auto","lsp","static"], default: "auto", describe: "Python analysis engine: static (AST) or lsp (pyright). auto selects static." })
     .help().argv) as unknown as Args;
 
   const roots = argv.roots.map(r => resolve(String(r)));
@@ -65,14 +68,18 @@ async function main() {
   function commonRoot(paths:string[]):string { if(!paths.length) return process.cwd(); const segs = paths.map(p=> p.split(/\\|\//)); const minLen = Math.min(...segs.map(a=>a.length)); let i=0; for(; i<minLen; i++){ const part = segs[0][i]; if(!segs.every(a=> a[i]===part)) break; } return segs[0].slice(0,i).join('/') || process.cwd(); }
   const lspRoot = commonRoot(roots);
   const tsClient = await launchTsServer(lspRoot);
-  const pyClient = await launchPyright(lspRoot);
+  // Python engine selection (Stage 2): default to static to avoid weak LSP call hierarchy.
+  const pythonEngine = (argv.pythonEngine||'auto');
+  const useStatic = pythonEngine === 'static' || pythonEngine === 'auto';
+  const pyClient = useStatic ? null : await launchPyright(lspRoot);
 
   try {
     // Apply layout config early
     setLayoutConfig({ rankdir: (argv.rankdir==='TB'?'TB':'LR') as any, filesPerRow: argv.filesPerRow && argv.filesPerRow>0 ? argv.filesPerRow : 0 });
     const tsPart = await scanTs(roots, tsClient);
-    const pyPart = await scanPy(roots, pyClient);
-    const gd     = mergeGraphs([tsPart, pyPart]);
+  const pyPart = await scanPy(roots, pyClient as any, { engine: useStatic? 'static':'lsp' });
+  const gd     = mergeGraphs([tsPart, pyPart]);
+  const staticPyGraph = (useStatic && pyPart.staticResult?.rawJson) ? buildStaticPyGraph(pyPart.staticResult.rawJson, pyPart.staticResult.moduleMap) : null;
 
     // Determine effective call depth semantics
     // Priority: explicit --call-depth > legacy --max-depth > default (1)
@@ -98,7 +105,13 @@ async function main() {
         const tsFiles = fileIds.filter(f=> !/\.py$/i.test(f));
         const subGraphs: any[] = [];
   if (tsFiles.length) subGraphs.push(await buildSymbolGraph(tsFiles, tsClient, { collapse:false, maxDepth:0, includeImpl:false, trimLastDepth: argv.trimLastDepth, skipCalls:true }));
-  if (pyFiles.length) subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, { collapse:false, maxDepth:0, includeImpl:false, trimLastDepth: argv.trimLastDepth, skipCalls:true }));
+  if (pyFiles.length) {
+    if (pyClient) {
+      subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, { collapse:false, maxDepth:0, includeImpl:false, trimLastDepth: argv.trimLastDepth, skipCalls:true }));
+    } else if (staticPyGraph) {
+      subGraphs.push(staticPyGraph as any);
+    }
+  }
         // Reassign ids to keep them unique across merged graphs
         const symGraph = { files: [] as any[], relations: [] as any[] };
         let nextId = 0; const idRemap = new Map<string, number>();
@@ -170,7 +183,14 @@ async function main() {
   const internalMaxDepth = callDepth <= 0 ? 0 : callDepth; // pass through for readability
   const buildOptsBase = (skipCalls:boolean) => ({ collapse:false, maxDepth: internalMaxDepth, includeImpl: argv.impl!==false, trimLastDepth: argv.trimLastDepth, skipCalls });
   if (tsFiles.length) subGraphs.push(await buildSymbolGraph(tsFiles, tsClient, buildOptsBase(callDepth === 0)));
-  if (pyFiles.length) subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, buildOptsBase(callDepth === 0)));
+  if (pyFiles.length) {
+    if (pyClient) subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, buildOptsBase(callDepth === 0)));
+    else if (staticPyGraph) {
+      // Respect callDepth=0 by stripping call relations for static graph
+      const g = callDepth === 0 ? { files: staticPyGraph.files, relations: [] } : staticPyGraph;
+      subGraphs.push(g as any);
+    }
+  }
   const symGraph = { files: [] as any[], relations: [] as any[] };
   let nextId = 0; const idRemap = new Map<string, number>();
   for (const sg of subGraphs) {
@@ -248,7 +268,7 @@ async function main() {
       if (!argv.quiet) console.log(`Wrote ${resolve(argv.out)} (viz/minimal)`); else process.stdout.write(resolve(argv.out));
     }
   } finally {
-    await Promise.allSettled([tsClient.dispose(), pyClient.dispose()]);
+  await Promise.allSettled([tsClient.dispose(), pyClient?.dispose?.()]);
   }
 }
 

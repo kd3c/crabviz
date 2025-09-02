@@ -1,0 +1,1507 @@
+<!DOCTYPE html><html><head><meta charset=utf-8><title>Crabviz Detailed</title><style>:root {
+  --background-color: #f5fffa;
+
+  --selected-color: #4fe1f4;
+
+  --edge-color: #548f9e;
+  --edge-incoming-color: #698b69;
+  --edge-outgoing-color: #008acd;
+  --edge-incoming-outgoing-color: black;
+
+  --cluster-label-bg-color: #e8eaed;
+
+  --node-bg-color: #f4f5f1;
+
+  --symbol-default-bg-color: var(--node-bg-color);
+  --symbol-default-border-color: #889f4e;
+  --symbol-default-text-color: #363636;
+
+  --interface-bg-color: #fff8dc;
+  --interface-border-color: #a69348;
+
+  --module-bg-color: #ffebcd;
+  --module-border-color: #a67e43;
+
+  --constructor-bg-color: #ffdab9;
+  --constructor-border-color: #a66e3c;
+
+  --method-bg-color: #fff8c5;
+  --method-border-color: #d4a72c;
+  /* --method-text-color: #9a6700; */
+
+  --function-bg-color: #bafbd0;
+  --function-border-color: #4ac26b;
+
+  --struct-bg-color: #ddf4ff;
+  --struct-border-color: #54aeff;
+  /* --struct-text-color: #8969da; */
+
+  --type-icon-color: #8969da;
+  --property-icon-color: #5f9348;
+}
+.callgraph {
+  --bold-border: 3.2;
+
+  width: 100%;
+  height: 100%;
+  outline: none;
+
+  cursor: default;
+
+  user-select: none;
+
+  & > #graph0 {
+    & > polygon:first-of-type {
+      fill: var(--background-color);
+    }
+
+    & > #faded-group {
+      & > :where(.node, .cluster) {
+        opacity: 0.2;
+      }
+
+      & > .edge {
+        opacity: 0.05;
+      }
+    }
+  }
+
+  .edge {
+    & > path:not(.hover-path) {
+      stroke: var(--edge-color);
+      stroke-width: 3;
+    }
+    & > polygon {
+      stroke: var(--edge-color);
+      fill: var(--edge-color);
+    }
+    & > path.hover-path {
+      stroke: transparent;
+      stroke-width: 15;
+    }
+
+    &.impl {
+      & > path {
+        stroke-dasharray: 8, 3;
+      }
+      & > polygon {
+        stroke-width: 2;
+        fill: none !important;
+      }
+    }
+
+    &:hover {
+      --edge-color: var(--selected-color);
+    }
+    &.incoming {
+      --edge-color: var(--edge-incoming-color);
+    }
+    &.outgoing {
+      --edge-color: var(--edge-outgoing-color);
+    }
+    &.incoming.outgoing {
+      --edge-color: var(--edge-incoming-outgoing-color);
+    }
+  }
+
+  .cluster {
+    polygon {
+      stroke-width: 1.6;
+    }
+
+    .cluster-label {
+      cursor: pointer;
+      fill: var(--cluster-label-bg-color);
+      rx: 18px;
+    }
+
+    text {
+      pointer-events: none;
+    }
+
+    &.selected {
+      polygon {
+        stroke-width: var(--bold-border);
+        stroke: var(--selected-color);
+      }
+
+      --cluster-label-bg-color: color-mix(in srgb, var(--selected-color) 30%, transparent);
+    }
+  }
+
+  .node {
+    & > rect {
+      rx: 20px;
+      fill: var(--node-bg-color);
+      filter: url(#shadow);
+    }
+    &.selected > rect {
+      stroke: var(--selected-color);
+      stroke-width: var(--bold-border);
+    }
+
+    & > .title {
+      cursor: pointer;
+
+      & > text {
+        font-weight: bold;
+      }
+    }
+  }
+
+  .cell {
+    --bg-color: var(--symbol-default-bg-color);
+    --border-color: var(--symbol-default-border-color);
+    --border-width: 1.6;
+
+    & > rect {
+      rx: 10px;
+      fill: var(--bg-color);
+      stroke: var(--border-color);
+      stroke-width: var(--border-width);
+    }
+    & > text {
+      fill: var(--symbold-default-text-color);
+    }
+
+    &:where(.highlight, .selected, :not(:has(> .cell:hover)):hover) {
+      --border-width: var(--bold-border);
+    }
+
+    &.highlight > rect {
+      stroke: url(#highlightGradient);
+    }
+    &.selected > rect {
+      filter: drop-shadow(3px 3px 6px var(--border-color));
+    }
+
+    /* symbols */
+
+    &.interface {
+      --bg-color: var(--interface-bg-color);
+      --border-color: var(--interface-border-color);
+
+      & > rect {
+        stroke-dasharray: 7, 5;
+      }
+    }
+
+    &.module {
+      --bg-color: var(--module-bg-color);
+      --border-color: var(--module-border-color);
+    }
+    &.constructor {
+      --bg-color: var(--constructor-bg-color);
+      --border-color: var(--constructor-border-color);
+    }
+    &.function {
+      --bg-color: var(--function-bg-color);
+      --border-color: var(--function-border-color);
+    }
+    &.method {
+      --bg-color: var(--method-bg-color);
+      --border-color: var(--method-border-color);
+    }
+    &:where(.class, .struct, .enum) {
+      --bg-color: var(--struct-bg-color);
+      --border-color: var(--struct-border-color);
+
+      & > rect {
+        rx: unset;
+      }
+
+      & > text {
+        transform: translateY(1.5px);
+
+        &:first-of-type {
+          fill: var(--type-icon-color);
+        }
+      }
+    }
+    &:where(.field, .property) {
+      & > rect {
+        rx: unset;
+      }
+
+      & > text:first-of-type {
+        font-style: italic;
+        fill: var(--property-icon-color);
+      }
+    }
+  }
+}
+
+:root{--background-color: #f5fffa;--selected-color: #4fe1f4;--edge-color: #548f9e;--edge-incoming-color: #698b69;--edge-outgoing-color: #008acd;--edge-incoming-outgoing-color: black;--cluster-label-bg-color: #e8eaed;--node-bg-color: #f4f5f1;--symbol-default-bg-color: var(--node-bg-color);--symbol-default-border-color: #889f4e;--symbol-default-text-color: #363636;--interface-bg-color: #fff8dc;--interface-border-color: #a69348;--module-bg-color: #ffebcd;--module-border-color: #a67e43;--constructor-bg-color: #ffdab9;--constructor-border-color: #a66e3c;--method-bg-color: #fff8c5;--method-border-color: #d4a72c;--function-bg-color: #bafbd0;--function-border-color: #4ac26b;--struct-bg-color: #ddf4ff;--struct-border-color: #54aeff;--type-icon-color: #8969da;--property-icon-color: #5f9348}.callgraph{--bold-border: 3.2;width:100%;height:100%;outline:none;cursor:default;-webkit-user-select:none;user-select:none}.callgraph>#graph0>polygon:first-of-type{fill:var(--background-color)}.callgraph>#graph0>#faded-group>:where(.node,.cluster){opacity:.2}.callgraph>#graph0>#faded-group>.edge{opacity:.05}.callgraph .edge>path:not(.hover-path){stroke:var(--edge-color);stroke-width:3}.callgraph .edge>polygon{stroke:var(--edge-color);fill:var(--edge-color)}.callgraph .edge>path.hover-path{stroke:transparent;stroke-width:15}.callgraph .edge.impl>path{stroke-dasharray:8,3}.callgraph .edge.impl>polygon{stroke-width:2;fill:none!important}.callgraph .edge:hover{--edge-color: var(--selected-color)}.callgraph .edge.incoming{--edge-color: var(--edge-incoming-color)}.callgraph .edge.outgoing{--edge-color: var(--edge-outgoing-color)}.callgraph .edge.incoming.outgoing{--edge-color: var(--edge-incoming-outgoing-color)}.callgraph .cluster polygon{stroke-width:1.6}.callgraph .cluster .cluster-label{cursor:pointer;fill:var(--cluster-label-bg-color);rx:18px}.callgraph .cluster text{pointer-events:none}.callgraph .cluster.selected{--cluster-label-bg-color: color-mix(in srgb, var(--selected-color) 30%, transparent)}.callgraph .cluster.selected polygon{stroke-width:var(--bold-border);stroke:var(--selected-color)}.callgraph .node>rect{rx:20px;fill:var(--node-bg-color);filter:url(#shadow)}.callgraph .node.selected>rect{stroke:var(--selected-color);stroke-width:var(--bold-border)}.callgraph .node>.title{cursor:pointer}.callgraph .node>.title>text{font-weight:700}.callgraph .cell{--bg-color: var(--symbol-default-bg-color);--border-color: var(--symbol-default-border-color);--border-width: 1.6}.callgraph .cell>rect{rx:10px;fill:var(--bg-color);stroke:var(--border-color);stroke-width:var(--border-width)}.callgraph .cell>text{fill:var(--symbold-default-text-color)}.callgraph .cell:where(.highlight,.selected,:not(:has(>.cell:hover)):hover){--border-width: var(--bold-border)}.callgraph .cell.highlight>rect{stroke:url(#highlightGradient)}.callgraph .cell.selected>rect{filter:drop-shadow(3px 3px 6px var(--border-color))}.callgraph .cell.interface{--bg-color: var(--interface-bg-color);--border-color: var(--interface-border-color)}.callgraph .cell.interface>rect{stroke-dasharray:7,5}.callgraph .cell.module{--bg-color: var(--module-bg-color);--border-color: var(--module-border-color)}.callgraph .cell.constructor{--bg-color: var(--constructor-bg-color);--border-color: var(--constructor-border-color)}.callgraph .cell.function{--bg-color: var(--function-bg-color);--border-color: var(--function-border-color)}.callgraph .cell.method{--bg-color: var(--method-bg-color);--border-color: var(--method-border-color)}.callgraph .cell:where(.class,.struct,.enum){--bg-color: var(--struct-bg-color);--border-color: var(--struct-border-color)}.callgraph .cell:where(.class,.struct,.enum)>rect{rx:unset}.callgraph .cell:where(.class,.struct,.enum)>text{transform:translateY(1.5px)}.callgraph .cell:where(.class,.struct,.enum)>text:first-of-type{fill:var(--type-icon-color)}.callgraph .cell:where(.field,.property)>rect{rx:unset}.callgraph .cell:where(.field,.property)>text:first-of-type{font-style:italic;fill:var(--property-icon-color)}
+</style></head><body><svg viewBox="0.00 0.00 718.00 213.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="width:100%;height:100vh;" class="callgraph">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 209)">
+
+<polygon fill="white" stroke="none" points="-4,4 -4,-209 713.88,-209 713.88,4 -4,4"></polygon>
+<!-- 0 -->
+<g id="0" class="node" data-path="C:/Git/crabviz/test-data/py-mini/a.py">
+
+<rect x="98.38" y="-205" width="232" height="205"></rect>
+<g id="0_0" class="title">
+<text xml:space="preserve" text-anchor="start" x="199.25" y="-172.6" font-family="Arial" font-size="16.00">a.py</text>
+
+</g>
+<g id="0:2_0" data-kind="12" class="cell function">
+<rect x="114.38" y="-153.8" width="200" height="27.200000000000017"></rect>
+<text xml:space="preserve" text-anchor="start" x="203.25" y="-135.4" font-family="Arial" font-size="16.00">foo</text>
+
+</g>
+<g id="0:6_0" data-kind="12" class="cell function">
+<rect x="114.38" y="-118.6" width="200" height="27.19999999999999"></rect>
+<text xml:space="preserve" text-anchor="start" x="202.81" y="-100.2" font-family="Arial" font-size="16.00">bar</text>
+
+</g>
+<g id="0:10_0" data-kind="6" class="cell method">
+<rect x="114.38" y="-83.4" width="200" height="27.200000000000003"></rect>
+<text xml:space="preserve" text-anchor="start" x="201.48" y="-65" font-family="Arial" font-size="16.00">baz</text>
+
+</g>
+<g id="0:14_0" data-kind="6" class="cell method">
+<rect x="114.38" y="-48.2" width="200" height="27.200000000000003"></rect>
+<text xml:space="preserve" text-anchor="start" x="188.14" y="-29.8" font-family="Arial" font-size="16.00">internal</text>
+
+</g>
+</g>
+<!-- 0&#45;&gt;0 -->
+<g id="0:2_0-0:6_0" class="edge static" data-from="0:2_0" data-to="0:6_0">
+
+<path fill="none" stroke="black" d="M114.58,-145.59C57.05,-145.3 3.5,-139.02 3.5,-122.6 3.5,-107.75 47.29,-101.19 98.21,-99.86"></path>
+<polygon fill="black" stroke="black" points="98.15,-105.11 113.06,-99.63 97.98,-94.61 98.15,-105.11"></polygon>
+<text xml:space="preserve" text-anchor="middle" x="1.75" y="-98.3" font-family="Times,serif" font-size="14.00"> </text>
+<path fill="none" stroke="black" d="M114.58,-145.59C57.05,-145.3 3.5,-139.02 3.5,-122.6 3.5,-107.75 47.29,-101.19 98.21,-99.86" class="hover-path"></path></g>
+<!-- 0&#45;&gt;0 -->
+<g id="0:10_0-0:6_0" class="edge static" data-from="0:10_0" data-to="0:6_0">
+
+<path fill="none" stroke="black" d="M114.58,-64.41C57.05,-64.7 3.5,-70.98 3.5,-87.4 3.5,-102.25 47.29,-108.81 98.21,-110.14"></path>
+<polygon fill="black" stroke="black" points="97.98,-115.39 113.06,-110.37 98.15,-104.89 97.98,-115.39"></polygon>
+<text xml:space="preserve" text-anchor="middle" x="1.75" y="-98.3" font-family="Times,serif" font-size="14.00"> </text>
+<path fill="none" stroke="black" d="M114.58,-64.41C57.05,-64.7 3.5,-70.98 3.5,-87.4 3.5,-102.25 47.29,-108.81 98.21,-110.14" class="hover-path"></path></g>
+<!-- 0&#45;&gt;0 -->
+<g id="0:10_0-0:14_0" class="edge static" data-from="0:10_0" data-to="0:14_0">
+
+<path fill="none" stroke="black" d="M114.58,-75.19C57.05,-74.9 3.5,-68.62 3.5,-52.2 3.5,-37.35 47.29,-30.79 98.21,-29.46"></path>
+<polygon fill="black" stroke="black" points="98.15,-34.71 113.06,-29.23 97.98,-24.21 98.15,-34.71"></polygon>
+<text xml:space="preserve" text-anchor="middle" x="1.75" y="-98.3" font-family="Times,serif" font-size="14.00"> </text>
+<path fill="none" stroke="black" d="M114.58,-75.19C57.05,-74.9 3.5,-68.62 3.5,-52.2 3.5,-37.35 47.29,-30.79 98.21,-29.46" class="hover-path"></path></g>
+<!-- 1 -->
+<g id="1" class="node" data-path="C:/Git/crabviz/test-data/py-mini/b.py">
+
+<rect x="477.88" y="-204.2" width="232" height="99.39999999999999"></rect>
+<g id="1_1" class="title">
+<text xml:space="preserve" text-anchor="start" x="578.75" y="-171.8" font-family="Arial" font-size="16.00">b.py</text>
+
+</g>
+<g id="1:0_0" data-kind="12" class="cell function">
+<rect x="493.88" y="-153" width="200" height="27.200000000000003"></rect>
+<text xml:space="preserve" text-anchor="start" x="571.64" y="-134.6" font-family="Arial" font-size="16.00">helper</text>
+
+</g>
+</g>
+<!-- 0&#45;&gt;1 -->
+<g id="0:2_0-1:0_0" class="edge static" data-from="0:2_0" data-to="1:0_0">
+
+<path fill="none" stroke="black" d="M315.38,-140.2C388.56,-140.2 410.83,-139.51 476.65,-139.41"></path>
+<polygon fill="black" stroke="black" points="476.37,-144.66 491.36,-139.4 476.36,-134.16 476.37,-144.66"></polygon>
+<text xml:space="preserve" text-anchor="middle" x="404.12" y="-144" font-family="Times,serif" font-size="14.00"> </text>
+<path fill="none" stroke="black" d="M315.38,-140.2C388.56,-140.2 410.83,-139.51 476.65,-139.41" class="hover-path"></path></g>
+<g id="faded-group"></g></g>
+<defs><filter id="shadow"><fedropshadow dx="0" dy="0" stdDeviation="4" flood-opacity="0.5"></fedropshadow></filter><linearGradient id="highlightGradient"><stop offset="0%" stop-color="var(--edge-incoming-color)"></stop><stop offset="100%" stop-color="var(--edge-outgoing-color)"></stop></linearGradient></defs></svg><script type=module>var __defProp = Object.defineProperty;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: !0, configurable: !0, writable: !0, value }) : obj[key] = value;
+var __name = (target, value) => __defProp(target, "name", { value, configurable: !0 });
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key != "symbol" ? key + "" : key, value);
+function getDefaultExportFromCjs(x) {
+  return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x.default : x;
+}
+__name(getDefaultExportFromCjs, "getDefaultExportFromCjs");
+var wheel = { exports: {} }, hasRequiredWheel;
+function requireWheel() {
+  if (hasRequiredWheel) return wheel.exports;
+  hasRequiredWheel = 1, wheel.exports = addWheelListener, wheel.exports.addWheelListener = addWheelListener, wheel.exports.removeWheelListener = removeWheelListener;
+  function addWheelListener(element, listener, useCapture) {
+    element.addEventListener("wheel", listener, useCapture);
+  }
+  __name(addWheelListener, "addWheelListener");
+  function removeWheelListener(element, listener, useCapture) {
+    element.removeEventListener("wheel", listener, useCapture);
+  }
+  return __name(removeWheelListener, "removeWheelListener"), wheel.exports;
+}
+__name(requireWheel, "requireWheel");
+var amator = { exports: {} }, src, hasRequiredSrc;
+function requireSrc() {
+  if (hasRequiredSrc) return src;
+  hasRequiredSrc = 1;
+  var NEWTON_ITERATIONS = 4, NEWTON_MIN_SLOPE = 1e-3, SUBDIVISION_PRECISION = 1e-7, SUBDIVISION_MAX_ITERATIONS = 10, kSplineTableSize = 11, kSampleStepSize = 1 / (kSplineTableSize - 1), float32ArraySupported = typeof Float32Array == "function";
+  function A(aA1, aA2) {
+    return 1 - 3 * aA2 + 3 * aA1;
+  }
+  __name(A, "A");
+  function B(aA1, aA2) {
+    return 3 * aA2 - 6 * aA1;
+  }
+  __name(B, "B");
+  function C(aA1) {
+    return 3 * aA1;
+  }
+  __name(C, "C");
+  function calcBezier(aT, aA1, aA2) {
+    return ((A(aA1, aA2) * aT + B(aA1, aA2)) * aT + C(aA1)) * aT;
+  }
+  __name(calcBezier, "calcBezier");
+  function getSlope(aT, aA1, aA2) {
+    return 3 * A(aA1, aA2) * aT * aT + 2 * B(aA1, aA2) * aT + C(aA1);
+  }
+  __name(getSlope, "getSlope");
+  function binarySubdivide(aX, aA, aB, mX1, mX2) {
+    var currentX, currentT, i = 0;
+    do
+      currentT = aA + (aB - aA) / 2, currentX = calcBezier(currentT, mX1, mX2) - aX, currentX > 0 ? aB = currentT : aA = currentT;
+    while (Math.abs(currentX) > SUBDIVISION_PRECISION && ++i < SUBDIVISION_MAX_ITERATIONS);
+    return currentT;
+  }
+  __name(binarySubdivide, "binarySubdivide");
+  function newtonRaphsonIterate(aX, aGuessT, mX1, mX2) {
+    for (var i = 0; i < NEWTON_ITERATIONS; ++i) {
+      var currentSlope = getSlope(aGuessT, mX1, mX2);
+      if (currentSlope === 0)
+        return aGuessT;
+      var currentX = calcBezier(aGuessT, mX1, mX2) - aX;
+      aGuessT -= currentX / currentSlope;
+    }
+    return aGuessT;
+  }
+  __name(newtonRaphsonIterate, "newtonRaphsonIterate");
+  function LinearEasing(x) {
+    return x;
+  }
+  return __name(LinearEasing, "LinearEasing"), src = /* @__PURE__ */ __name(function(mX1, mY1, mX2, mY2) {
+    if (!(0 <= mX1 && mX1 <= 1 && 0 <= mX2 && mX2 <= 1))
+      throw new Error("bezier x values must be in [0, 1] range");
+    if (mX1 === mY1 && mX2 === mY2)
+      return LinearEasing;
+    for (var sampleValues = float32ArraySupported ? new Float32Array(kSplineTableSize) : new Array(kSplineTableSize), i = 0; i < kSplineTableSize; ++i)
+      sampleValues[i] = calcBezier(i * kSampleStepSize, mX1, mX2);
+    function getTForX(aX) {
+      for (var intervalStart = 0, currentSample = 1, lastSample = kSplineTableSize - 1; currentSample !== lastSample && sampleValues[currentSample] <= aX; ++currentSample)
+        intervalStart += kSampleStepSize;
+      --currentSample;
+      var dist = (aX - sampleValues[currentSample]) / (sampleValues[currentSample + 1] - sampleValues[currentSample]), guessForT = intervalStart + dist * kSampleStepSize, initialSlope = getSlope(guessForT, mX1, mX2);
+      return initialSlope >= NEWTON_MIN_SLOPE ? newtonRaphsonIterate(aX, guessForT, mX1, mX2) : initialSlope === 0 ? guessForT : binarySubdivide(aX, intervalStart, intervalStart + kSampleStepSize, mX1, mX2);
+    }
+    return __name(getTForX, "getTForX"), /* @__PURE__ */ __name(function(x) {
+      return x === 0 ? 0 : x === 1 ? 1 : calcBezier(getTForX(x), mY1, mY2);
+    }, "BezierEasing");
+  }, "bezier"), src;
+}
+__name(requireSrc, "requireSrc");
+var hasRequiredAmator;
+function requireAmator() {
+  if (hasRequiredAmator) return amator.exports;
+  hasRequiredAmator = 1;
+  var BezierEasing = requireSrc(), animations = {
+    ease: BezierEasing(0.25, 0.1, 0.25, 1),
+    easeIn: BezierEasing(0.42, 0, 1, 1),
+    easeOut: BezierEasing(0, 0, 0.58, 1),
+    easeInOut: BezierEasing(0.42, 0, 0.58, 1),
+    linear: BezierEasing(0, 0, 1, 1)
+  };
+  amator.exports = animate, amator.exports.makeAggregateRaf = makeAggregateRaf, amator.exports.sharedScheduler = makeAggregateRaf();
+  function animate(source, target, options) {
+    var start = /* @__PURE__ */ Object.create(null), diff = /* @__PURE__ */ Object.create(null);
+    options = options || {};
+    var easing = typeof options.easing == "function" ? options.easing : animations[options.easing];
+    easing || (options.easing && console.warn("Unknown easing function in amator: " + options.easing), easing = animations.ease);
+    var step = typeof options.step == "function" ? options.step : noop, done = typeof options.done == "function" ? options.done : noop, scheduler = getScheduler(options.scheduler), keys = Object.keys(target);
+    keys.forEach(function(key) {
+      start[key] = source[key], diff[key] = target[key] - source[key];
+    });
+    var durationInMs = typeof options.duration == "number" ? options.duration : 400, durationInFrames = Math.max(1, durationInMs * 0.06), previousAnimationId, frame = 0;
+    return previousAnimationId = scheduler.next(loop), {
+      cancel
+    };
+    function cancel() {
+      scheduler.cancel(previousAnimationId), previousAnimationId = 0;
+    }
+    __name(cancel, "cancel");
+    function loop() {
+      var t = easing(frame / durationInFrames);
+      frame += 1, setValues(t), frame <= durationInFrames ? (previousAnimationId = scheduler.next(loop), step(source)) : (previousAnimationId = 0, setTimeout(function() {
+        done(source);
+      }, 0));
+    }
+    __name(loop, "loop");
+    function setValues(t) {
+      keys.forEach(function(key) {
+        source[key] = diff[key] * t + start[key];
+      });
+    }
+    __name(setValues, "setValues");
+  }
+  __name(animate, "animate");
+  function noop() {
+  }
+  __name(noop, "noop");
+  function getScheduler(scheduler) {
+    if (!scheduler) {
+      var canRaf = typeof window < "u" && window.requestAnimationFrame;
+      return canRaf ? rafScheduler() : timeoutScheduler();
+    }
+    if (typeof scheduler.next != "function") throw new Error("Scheduler is supposed to have next(cb) function");
+    if (typeof scheduler.cancel != "function") throw new Error("Scheduler is supposed to have cancel(handle) function");
+    return scheduler;
+  }
+  __name(getScheduler, "getScheduler");
+  function rafScheduler() {
+    return {
+      next: window.requestAnimationFrame.bind(window),
+      cancel: window.cancelAnimationFrame.bind(window)
+    };
+  }
+  __name(rafScheduler, "rafScheduler");
+  function timeoutScheduler() {
+    return {
+      next: /* @__PURE__ */ __name(function(cb) {
+        return setTimeout(cb, 1e3 / 60);
+      }, "next"),
+      cancel: /* @__PURE__ */ __name(function(id) {
+        return clearTimeout(id);
+      }, "cancel")
+    };
+  }
+  __name(timeoutScheduler, "timeoutScheduler");
+  function makeAggregateRaf() {
+    var frontBuffer = /* @__PURE__ */ new Set(), backBuffer = /* @__PURE__ */ new Set(), frameToken = 0;
+    return {
+      next,
+      cancel: next,
+      clearAll
+    };
+    function clearAll() {
+      frontBuffer.clear(), backBuffer.clear(), cancelAnimationFrame(frameToken), frameToken = 0;
+    }
+    function next(callback) {
+      backBuffer.add(callback), renderNextFrame();
+    }
+    function renderNextFrame() {
+      frameToken || (frameToken = requestAnimationFrame(renderFrame));
+    }
+    function renderFrame() {
+      frameToken = 0;
+      var t = backBuffer;
+      backBuffer = frontBuffer, frontBuffer = t, frontBuffer.forEach(function(callback) {
+        callback();
+      }), frontBuffer.clear();
+    }
+  }
+  return __name(makeAggregateRaf, "makeAggregateRaf"), amator.exports;
+}
+__name(requireAmator, "requireAmator");
+var ngraph_events, hasRequiredNgraph_events;
+function requireNgraph_events() {
+  if (hasRequiredNgraph_events) return ngraph_events;
+  hasRequiredNgraph_events = 1, ngraph_events = /* @__PURE__ */ __name(function(subject) {
+    validateSubject(subject);
+    var eventsStorage = createEventsStorage(subject);
+    return subject.on = eventsStorage.on, subject.off = eventsStorage.off, subject.fire = eventsStorage.fire, subject;
+  }, "eventify");
+  function createEventsStorage(subject) {
+    var registeredEvents = /* @__PURE__ */ Object.create(null);
+    return {
+      on: /* @__PURE__ */ __name(function(eventName, callback, ctx) {
+        if (typeof callback != "function")
+          throw new Error("callback is expected to be a function");
+        var handlers = registeredEvents[eventName];
+        return handlers || (handlers = registeredEvents[eventName] = []), handlers.push({ callback, ctx }), subject;
+      }, "on"),
+      off: /* @__PURE__ */ __name(function(eventName, callback) {
+        var wantToRemoveAll = typeof eventName > "u";
+        if (wantToRemoveAll)
+          return registeredEvents = /* @__PURE__ */ Object.create(null), subject;
+        if (registeredEvents[eventName]) {
+          var deleteAllCallbacksForEvent = typeof callback != "function";
+          if (deleteAllCallbacksForEvent)
+            delete registeredEvents[eventName];
+          else
+            for (var callbacks = registeredEvents[eventName], i = 0; i < callbacks.length; ++i)
+              callbacks[i].callback === callback && callbacks.splice(i, 1);
+        }
+        return subject;
+      }, "off"),
+      fire: /* @__PURE__ */ __name(function(eventName) {
+        var callbacks = registeredEvents[eventName];
+        if (!callbacks)
+          return subject;
+        var fireArguments;
+        arguments.length > 1 && (fireArguments = Array.prototype.splice.call(arguments, 1));
+        for (var i = 0; i < callbacks.length; ++i) {
+          var callbackInfo = callbacks[i];
+          callbackInfo.callback.apply(callbackInfo.ctx, fireArguments);
+        }
+        return subject;
+      }, "fire")
+    };
+  }
+  __name(createEventsStorage, "createEventsStorage");
+  function validateSubject(subject) {
+    if (!subject)
+      throw new Error("Eventify cannot use falsy object as events subject");
+    for (var reservedWords = ["on", "fire", "off"], i = 0; i < reservedWords.length; ++i)
+      if (subject.hasOwnProperty(reservedWords[i]))
+        throw new Error("Subject cannot be eventified, since it already has property '" + reservedWords[i] + "'");
+  }
+  return __name(validateSubject, "validateSubject"), ngraph_events;
+}
+__name(requireNgraph_events, "requireNgraph_events");
+var kinetic_1, hasRequiredKinetic;
+function requireKinetic() {
+  if (hasRequiredKinetic) return kinetic_1;
+  hasRequiredKinetic = 1, kinetic_1 = kinetic;
+  function kinetic(getPoint, scroll, settings) {
+    typeof settings != "object" && (settings = {});
+    var minVelocity = typeof settings.minVelocity == "number" ? settings.minVelocity : 5, amplitude = typeof settings.amplitude == "number" ? settings.amplitude : 0.25, cancelAnimationFrame2 = typeof settings.cancelAnimationFrame == "function" ? settings.cancelAnimationFrame : getCancelAnimationFrame(), requestAnimationFrame2 = typeof settings.requestAnimationFrame == "function" ? settings.requestAnimationFrame : getRequestAnimationFrame(), lastPoint, timestamp, timeConstant = 342, ticker, vx, targetX, ax, vy, targetY, ay, raf;
+    return {
+      start,
+      stop,
+      cancel: dispose
+    };
+    function dispose() {
+      cancelAnimationFrame2(ticker), cancelAnimationFrame2(raf);
+    }
+    function start() {
+      lastPoint = getPoint(), ax = ay = vx = vy = 0, timestamp = /* @__PURE__ */ new Date(), cancelAnimationFrame2(ticker), cancelAnimationFrame2(raf), ticker = requestAnimationFrame2(track);
+    }
+    function track() {
+      var now = Date.now(), elapsed = now - timestamp;
+      timestamp = now;
+      var currentPoint = getPoint(), dx = currentPoint.x - lastPoint.x, dy = currentPoint.y - lastPoint.y;
+      lastPoint = currentPoint;
+      var dt = 1e3 / (1 + elapsed);
+      vx = 0.8 * dx * dt + 0.2 * vx, vy = 0.8 * dy * dt + 0.2 * vy, ticker = requestAnimationFrame2(track);
+    }
+    function stop() {
+      cancelAnimationFrame2(ticker), cancelAnimationFrame2(raf);
+      var currentPoint = getPoint();
+      targetX = currentPoint.x, targetY = currentPoint.y, timestamp = Date.now(), (vx < -minVelocity || vx > minVelocity) && (ax = amplitude * vx, targetX += ax), (vy < -minVelocity || vy > minVelocity) && (ay = amplitude * vy, targetY += ay), raf = requestAnimationFrame2(autoScroll);
+    }
+    function autoScroll() {
+      var elapsed = Date.now() - timestamp, moving = !1, dx = 0, dy = 0;
+      ax && (dx = -ax * Math.exp(-elapsed / timeConstant), dx > 0.5 || dx < -0.5 ? moving = !0 : dx = ax = 0), ay && (dy = -ay * Math.exp(-elapsed / timeConstant), dy > 0.5 || dy < -0.5 ? moving = !0 : dy = ay = 0), moving && (scroll(targetX + dx, targetY + dy), raf = requestAnimationFrame2(autoScroll));
+    }
+  }
+  __name(kinetic, "kinetic");
+  function getCancelAnimationFrame() {
+    return typeof cancelAnimationFrame == "function" ? cancelAnimationFrame : clearTimeout;
+  }
+  __name(getCancelAnimationFrame, "getCancelAnimationFrame");
+  function getRequestAnimationFrame() {
+    return typeof requestAnimationFrame == "function" ? requestAnimationFrame : function(handler) {
+      return setTimeout(handler, 16);
+    };
+  }
+  return __name(getRequestAnimationFrame, "getRequestAnimationFrame"), kinetic_1;
+}
+__name(requireKinetic, "requireKinetic");
+var createTextSelectionInterceptor_1, hasRequiredCreateTextSelectionInterceptor;
+function requireCreateTextSelectionInterceptor() {
+  if (hasRequiredCreateTextSelectionInterceptor) return createTextSelectionInterceptor_1;
+  hasRequiredCreateTextSelectionInterceptor = 1, createTextSelectionInterceptor_1 = createTextSelectionInterceptor;
+  function createTextSelectionInterceptor(useFake) {
+    if (useFake)
+      return {
+        capture: noop,
+        release: noop
+      };
+    var dragObject, prevSelectStart, prevDragStart, wasCaptured = !1;
+    return {
+      capture,
+      release
+    };
+    function capture(domObject) {
+      wasCaptured = !0, prevSelectStart = window.document.onselectstart, prevDragStart = window.document.ondragstart, window.document.onselectstart = disabled, dragObject = domObject, dragObject.ondragstart = disabled;
+    }
+    function release() {
+      wasCaptured && (wasCaptured = !1, window.document.onselectstart = prevSelectStart, dragObject && (dragObject.ondragstart = prevDragStart));
+    }
+  }
+  __name(createTextSelectionInterceptor, "createTextSelectionInterceptor");
+  function disabled(e) {
+    return e.stopPropagation(), !1;
+  }
+  __name(disabled, "disabled");
+  function noop() {
+  }
+  return __name(noop, "noop"), createTextSelectionInterceptor_1;
+}
+__name(requireCreateTextSelectionInterceptor, "requireCreateTextSelectionInterceptor");
+var transform, hasRequiredTransform;
+function requireTransform() {
+  if (hasRequiredTransform) return transform;
+  hasRequiredTransform = 1, transform = Transform;
+  function Transform() {
+    this.x = 0, this.y = 0, this.scale = 1;
+  }
+  return __name(Transform, "Transform"), transform;
+}
+__name(requireTransform, "requireTransform");
+var svgController = { exports: {} }, hasRequiredSvgController;
+function requireSvgController() {
+  if (hasRequiredSvgController) return svgController.exports;
+  hasRequiredSvgController = 1, svgController.exports = makeSvgController, svgController.exports.canAttach = isSVGElement;
+  function makeSvgController(svgElement, options) {
+    if (!isSVGElement(svgElement))
+      throw new Error("svg element is required for svg.panzoom to work");
+    var owner = svgElement.ownerSVGElement;
+    if (!owner)
+      throw new Error(
+        "Do not apply panzoom to the root <svg> element. Use its child instead (e.g. <g></g>). As of March 2016 only FireFox supported transform on the root element"
+      );
+    options.disableKeyboardInteraction || owner.setAttribute("tabindex", 0);
+    var api = {
+      getBBox,
+      getScreenCTM,
+      getOwner,
+      applyTransform,
+      initTransform
+    };
+    return api;
+    function getOwner() {
+      return owner;
+    }
+    function getBBox() {
+      var bbox = svgElement.getBBox();
+      return {
+        left: bbox.x,
+        top: bbox.y,
+        width: bbox.width,
+        height: bbox.height
+      };
+    }
+    function getScreenCTM() {
+      var ctm = owner.getCTM();
+      return ctm || owner.getScreenCTM();
+    }
+    function initTransform(transform2) {
+      var screenCTM = svgElement.getCTM();
+      screenCTM === null && (screenCTM = document.createElementNS("http://www.w3.org/2000/svg", "svg").createSVGMatrix()), transform2.x = screenCTM.e, transform2.y = screenCTM.f, transform2.scale = screenCTM.a, owner.removeAttributeNS(null, "viewBox");
+    }
+    function applyTransform(transform2) {
+      svgElement.setAttribute("transform", "matrix(" + transform2.scale + " 0 0 " + transform2.scale + " " + transform2.x + " " + transform2.y + ")");
+    }
+  }
+  __name(makeSvgController, "makeSvgController");
+  function isSVGElement(element) {
+    return element && element.ownerSVGElement && element.getCTM;
+  }
+  return __name(isSVGElement, "isSVGElement"), svgController.exports;
+}
+__name(requireSvgController, "requireSvgController");
+var domController = { exports: {} }, hasRequiredDomController;
+function requireDomController() {
+  if (hasRequiredDomController) return domController.exports;
+  hasRequiredDomController = 1, domController.exports = makeDomController, domController.exports.canAttach = isDomElement;
+  function makeDomController(domElement, options) {
+    var elementValid = isDomElement(domElement);
+    if (!elementValid)
+      throw new Error("panzoom requires DOM element to be attached to the DOM tree");
+    var owner = domElement.parentElement;
+    domElement.scrollTop = 0, options.disableKeyboardInteraction || owner.setAttribute("tabindex", 0);
+    var api = {
+      getBBox,
+      getOwner,
+      applyTransform
+    };
+    return api;
+    function getOwner() {
+      return owner;
+    }
+    function getBBox() {
+      return {
+        left: 0,
+        top: 0,
+        width: domElement.clientWidth,
+        height: domElement.clientHeight
+      };
+    }
+    function applyTransform(transform2) {
+      domElement.style.transformOrigin = "0 0 0", domElement.style.transform = "matrix(" + transform2.scale + ", 0, 0, " + transform2.scale + ", " + transform2.x + ", " + transform2.y + ")";
+    }
+  }
+  __name(makeDomController, "makeDomController");
+  function isDomElement(element) {
+    return element && element.parentElement && element.style;
+  }
+  return __name(isDomElement, "isDomElement"), domController.exports;
+}
+__name(requireDomController, "requireDomController");
+var panzoom, hasRequiredPanzoom;
+function requirePanzoom() {
+  if (hasRequiredPanzoom) return panzoom;
+  hasRequiredPanzoom = 1;
+  var wheel2 = requireWheel(), animate = requireAmator(), eventify = requireNgraph_events(), kinetic = requireKinetic(), createTextSelectionInterceptor = requireCreateTextSelectionInterceptor(), domTextSelectionInterceptor = createTextSelectionInterceptor(), fakeTextSelectorInterceptor = createTextSelectionInterceptor(!0), Transform = requireTransform(), makeSvgController = requireSvgController(), makeDomController = requireDomController(), defaultZoomSpeed = 1, defaultDoubleTapZoomSpeed = 1.75, doubleTapSpeedInMS = 300, clickEventTimeInMS = 200;
+  panzoom = createPanZoom2;
+  function createPanZoom2(domElement, options) {
+    options = options || {};
+    var panController = options.controller;
+    if (panController || (makeSvgController.canAttach(domElement) ? panController = makeSvgController(domElement, options) : makeDomController.canAttach(domElement) && (panController = makeDomController(domElement, options))), !panController)
+      throw new Error(
+        "Cannot create panzoom for the current type of dom element"
+      );
+    var owner = panController.getOwner(), storedCTMResult = { x: 0, y: 0 }, isDirty = !1, transform2 = new Transform();
+    panController.initTransform && panController.initTransform(transform2);
+    var filterKey = typeof options.filterKey == "function" ? options.filterKey : noop, pinchSpeed = typeof options.pinchSpeed == "number" ? options.pinchSpeed : 1, bounds = options.bounds, maxZoom = typeof options.maxZoom == "number" ? options.maxZoom : Number.POSITIVE_INFINITY, minZoom = typeof options.minZoom == "number" ? options.minZoom : 0, boundsPadding = typeof options.boundsPadding == "number" ? options.boundsPadding : 0.05, zoomDoubleClickSpeed = typeof options.zoomDoubleClickSpeed == "number" ? options.zoomDoubleClickSpeed : defaultDoubleTapZoomSpeed, beforeWheel = options.beforeWheel || noop, beforeMouseDown = options.beforeMouseDown || noop, speed = typeof options.zoomSpeed == "number" ? options.zoomSpeed : defaultZoomSpeed, transformOrigin = parseTransformOrigin(options.transformOrigin), textSelection = options.enableTextSelection ? fakeTextSelectorInterceptor : domTextSelectionInterceptor;
+    validateBounds(bounds), options.autocenter && autocenter();
+    var frameAnimation, lastTouchEndTime = 0, lastTouchStartTime = 0, pendingClickEventTimeout = 0, lastMouseDownedEvent = null, lastMouseDownTime = /* @__PURE__ */ new Date(), lastSingleFingerOffset, touchInProgress = !1, panstartFired = !1, mouseX, mouseY, clickX, clickY, pinchZoomLength, smoothScroll;
+    "smoothScroll" in options && !options.smoothScroll ? smoothScroll = rigidScroll() : smoothScroll = kinetic(getPoint, scroll, options.smoothScroll);
+    var moveByAnimation, zoomToAnimation, multiTouch, paused = !1;
+    listenForEvents();
+    var api = {
+      dispose,
+      moveBy: internalMoveBy,
+      moveTo,
+      smoothMoveTo,
+      centerOn,
+      zoomTo: publicZoomTo,
+      zoomAbs,
+      smoothZoom,
+      smoothZoomAbs,
+      showRectangle,
+      pause,
+      resume,
+      isPaused,
+      getTransform: getTransformModel,
+      getMinZoom,
+      setMinZoom,
+      getMaxZoom,
+      setMaxZoom,
+      getTransformOrigin,
+      setTransformOrigin,
+      getZoomSpeed,
+      setZoomSpeed
+    };
+    eventify(api);
+    var initialX = typeof options.initialX == "number" ? options.initialX : transform2.x, initialY = typeof options.initialY == "number" ? options.initialY : transform2.y, initialZoom = typeof options.initialZoom == "number" ? options.initialZoom : transform2.scale;
+    return (initialX != transform2.x || initialY != transform2.y || initialZoom != transform2.scale) && zoomAbs(initialX, initialY, initialZoom), api;
+    function pause() {
+      releaseEvents(), paused = !0;
+    }
+    __name(pause, "pause");
+    function resume() {
+      paused && (listenForEvents(), paused = !1);
+    }
+    __name(resume, "resume");
+    function isPaused() {
+      return paused;
+    }
+    __name(isPaused, "isPaused");
+    function showRectangle(rect) {
+      var clientRect = owner.getBoundingClientRect(), size = transformToScreen(clientRect.width, clientRect.height), rectWidth = rect.right - rect.left, rectHeight = rect.bottom - rect.top;
+      if (!Number.isFinite(rectWidth) || !Number.isFinite(rectHeight))
+        throw new Error("Invalid rectangle");
+      var dw = size.x / rectWidth, dh = size.y / rectHeight, scale = Math.min(dw, dh);
+      transform2.x = -(rect.left + rectWidth / 2) * scale + size.x / 2, transform2.y = -(rect.top + rectHeight / 2) * scale + size.y / 2, transform2.scale = scale;
+    }
+    __name(showRectangle, "showRectangle");
+    function transformToScreen(x, y) {
+      if (panController.getScreenCTM) {
+        var parentCTM = panController.getScreenCTM(), parentScaleX = parentCTM.a, parentScaleY = parentCTM.d, parentOffsetX = parentCTM.e, parentOffsetY = parentCTM.f;
+        storedCTMResult.x = x * parentScaleX - parentOffsetX, storedCTMResult.y = y * parentScaleY - parentOffsetY;
+      } else
+        storedCTMResult.x = x, storedCTMResult.y = y;
+      return storedCTMResult;
+    }
+    __name(transformToScreen, "transformToScreen");
+    function autocenter() {
+      var w, h, left = 0, top = 0, sceneBoundingBox = getBoundingBox();
+      if (sceneBoundingBox)
+        left = sceneBoundingBox.left, top = sceneBoundingBox.top, w = sceneBoundingBox.right - sceneBoundingBox.left, h = sceneBoundingBox.bottom - sceneBoundingBox.top;
+      else {
+        var ownerRect = owner.getBoundingClientRect();
+        w = ownerRect.width, h = ownerRect.height;
+      }
+      var bbox = panController.getBBox();
+      if (!(bbox.width === 0 || bbox.height === 0)) {
+        var dh = h / bbox.height, dw = w / bbox.width, scale = Math.min(dw, dh);
+        transform2.x = -(bbox.left + bbox.width / 2) * scale + w / 2 + left, transform2.y = -(bbox.top + bbox.height / 2) * scale + h / 2 + top, transform2.scale = scale;
+      }
+    }
+    __name(autocenter, "autocenter");
+    function getTransformModel() {
+      return transform2;
+    }
+    __name(getTransformModel, "getTransformModel");
+    function getMinZoom() {
+      return minZoom;
+    }
+    __name(getMinZoom, "getMinZoom");
+    function setMinZoom(newMinZoom) {
+      minZoom = newMinZoom;
+    }
+    __name(setMinZoom, "setMinZoom");
+    function getMaxZoom() {
+      return maxZoom;
+    }
+    __name(getMaxZoom, "getMaxZoom");
+    function setMaxZoom(newMaxZoom) {
+      maxZoom = newMaxZoom;
+    }
+    __name(setMaxZoom, "setMaxZoom");
+    function getTransformOrigin() {
+      return transformOrigin;
+    }
+    __name(getTransformOrigin, "getTransformOrigin");
+    function setTransformOrigin(newTransformOrigin) {
+      transformOrigin = parseTransformOrigin(newTransformOrigin);
+    }
+    __name(setTransformOrigin, "setTransformOrigin");
+    function getZoomSpeed() {
+      return speed;
+    }
+    __name(getZoomSpeed, "getZoomSpeed");
+    function setZoomSpeed(newSpeed) {
+      if (!Number.isFinite(newSpeed))
+        throw new Error("Zoom speed should be a number");
+      speed = newSpeed;
+    }
+    __name(setZoomSpeed, "setZoomSpeed");
+    function getPoint() {
+      return {
+        x: transform2.x,
+        y: transform2.y
+      };
+    }
+    __name(getPoint, "getPoint");
+    function moveTo(x, y) {
+      transform2.x = x, transform2.y = y, keepTransformInsideBounds(), triggerEvent("pan"), makeDirty();
+    }
+    __name(moveTo, "moveTo");
+    function moveBy(dx, dy) {
+      moveTo(transform2.x + dx, transform2.y + dy);
+    }
+    __name(moveBy, "moveBy");
+    function keepTransformInsideBounds() {
+      var boundingBox = getBoundingBox();
+      if (boundingBox) {
+        var adjusted = !1, clientRect = getClientRect(), diff = boundingBox.left - clientRect.right;
+        return diff > 0 && (transform2.x += diff, adjusted = !0), diff = boundingBox.right - clientRect.left, diff < 0 && (transform2.x += diff, adjusted = !0), diff = boundingBox.top - clientRect.bottom, diff > 0 && (transform2.y += diff, adjusted = !0), diff = boundingBox.bottom - clientRect.top, diff < 0 && (transform2.y += diff, adjusted = !0), adjusted;
+      }
+    }
+    __name(keepTransformInsideBounds, "keepTransformInsideBounds");
+    function getBoundingBox() {
+      if (bounds) {
+        if (typeof bounds == "boolean") {
+          var ownerRect = owner.getBoundingClientRect(), sceneWidth = ownerRect.width, sceneHeight = ownerRect.height;
+          return {
+            left: sceneWidth * boundsPadding,
+            top: sceneHeight * boundsPadding,
+            right: sceneWidth * (1 - boundsPadding),
+            bottom: sceneHeight * (1 - boundsPadding)
+          };
+        }
+        return bounds;
+      }
+    }
+    __name(getBoundingBox, "getBoundingBox");
+    function getClientRect() {
+      var bbox = panController.getBBox(), leftTop = client(bbox.left, bbox.top);
+      return {
+        left: leftTop.x,
+        top: leftTop.y,
+        right: bbox.width * transform2.scale + leftTop.x,
+        bottom: bbox.height * transform2.scale + leftTop.y
+      };
+    }
+    __name(getClientRect, "getClientRect");
+    function client(x, y) {
+      return {
+        x: x * transform2.scale + transform2.x,
+        y: y * transform2.scale + transform2.y
+      };
+    }
+    __name(client, "client");
+    function makeDirty() {
+      isDirty = !0, frameAnimation = window.requestAnimationFrame(frame);
+    }
+    __name(makeDirty, "makeDirty");
+    function zoomByRatio(clientX, clientY, ratio) {
+      if (isNaN(clientX) || isNaN(clientY) || isNaN(ratio))
+        throw new Error("zoom requires valid numbers");
+      var newScale = transform2.scale * ratio;
+      if (newScale < minZoom) {
+        if (transform2.scale === minZoom) return;
+        ratio = minZoom / transform2.scale;
+      }
+      if (newScale > maxZoom) {
+        if (transform2.scale === maxZoom) return;
+        ratio = maxZoom / transform2.scale;
+      }
+      var size = transformToScreen(clientX, clientY);
+      if (transform2.x = size.x - ratio * (size.x - transform2.x), transform2.y = size.y - ratio * (size.y - transform2.y), bounds && boundsPadding === 1 && minZoom === 1)
+        transform2.scale *= ratio, keepTransformInsideBounds();
+      else {
+        var transformAdjusted = keepTransformInsideBounds();
+        transformAdjusted || (transform2.scale *= ratio);
+      }
+      triggerEvent("zoom"), makeDirty();
+    }
+    __name(zoomByRatio, "zoomByRatio");
+    function zoomAbs(clientX, clientY, zoomLevel) {
+      var ratio = zoomLevel / transform2.scale;
+      zoomByRatio(clientX, clientY, ratio);
+    }
+    __name(zoomAbs, "zoomAbs");
+    function centerOn(ui) {
+      var parent = ui.ownerSVGElement;
+      if (!parent)
+        throw new Error("ui element is required to be within the scene");
+      var clientRect = ui.getBoundingClientRect(), cx = clientRect.left + clientRect.width / 2, cy = clientRect.top + clientRect.height / 2, container = parent.getBoundingClientRect(), dx = container.width / 2 - cx, dy = container.height / 2 - cy;
+      internalMoveBy(dx, dy, !0);
+    }
+    __name(centerOn, "centerOn");
+    function smoothMoveTo(x, y) {
+      internalMoveBy(x - transform2.x, y - transform2.y, !0);
+    }
+    __name(smoothMoveTo, "smoothMoveTo");
+    function internalMoveBy(dx, dy, smooth) {
+      if (!smooth)
+        return moveBy(dx, dy);
+      moveByAnimation && moveByAnimation.cancel();
+      var from = { x: 0, y: 0 }, to = { x: dx, y: dy }, lastX = 0, lastY = 0;
+      moveByAnimation = animate(from, to, {
+        step: /* @__PURE__ */ __name(function(v) {
+          moveBy(v.x - lastX, v.y - lastY), lastX = v.x, lastY = v.y;
+        }, "step")
+      });
+    }
+    __name(internalMoveBy, "internalMoveBy");
+    function scroll(x, y) {
+      cancelZoomAnimation(), moveTo(x, y);
+    }
+    __name(scroll, "scroll");
+    function dispose() {
+      releaseEvents();
+    }
+    __name(dispose, "dispose");
+    function listenForEvents() {
+      owner.addEventListener("mousedown", onMouseDown, { passive: !1 }), owner.addEventListener("dblclick", onDoubleClick, { passive: !1 }), owner.addEventListener("touchstart", onTouch, { passive: !1 }), owner.addEventListener("keydown", onKeyDown, { passive: !1 }), wheel2.addWheelListener(owner, onMouseWheel, { passive: !1 }), makeDirty();
+    }
+    __name(listenForEvents, "listenForEvents");
+    function releaseEvents() {
+      wheel2.removeWheelListener(owner, onMouseWheel), owner.removeEventListener("mousedown", onMouseDown), owner.removeEventListener("keydown", onKeyDown), owner.removeEventListener("dblclick", onDoubleClick), owner.removeEventListener("touchstart", onTouch), frameAnimation && (window.cancelAnimationFrame(frameAnimation), frameAnimation = 0), smoothScroll.cancel(), releaseDocumentMouse(), releaseTouches(), textSelection.release(), triggerPanEnd();
+    }
+    __name(releaseEvents, "releaseEvents");
+    function frame() {
+      isDirty && applyTransform();
+    }
+    __name(frame, "frame");
+    function applyTransform() {
+      isDirty = !1, panController.applyTransform(transform2), triggerEvent("transform"), frameAnimation = 0;
+    }
+    __name(applyTransform, "applyTransform");
+    function onKeyDown(e) {
+      var x = 0, y = 0, z = 0;
+      if (e.keyCode === 38 ? y = 1 : e.keyCode === 40 ? y = -1 : e.keyCode === 37 ? x = 1 : e.keyCode === 39 ? x = -1 : e.keyCode === 189 || e.keyCode === 109 ? z = 1 : (e.keyCode === 187 || e.keyCode === 107) && (z = -1), !filterKey(e, x, y, z)) {
+        if (x || y) {
+          e.preventDefault(), e.stopPropagation();
+          var clientRect = owner.getBoundingClientRect(), offset = Math.min(clientRect.width, clientRect.height), moveSpeedRatio = 0.05, dx = offset * moveSpeedRatio * x, dy = offset * moveSpeedRatio * y;
+          internalMoveBy(dx, dy);
+        }
+        if (z) {
+          var scaleMultiplier = getScaleMultiplier(z * 100), offset = transformOrigin ? getTransformOriginOffset() : midPoint();
+          publicZoomTo(offset.x, offset.y, scaleMultiplier);
+        }
+      }
+    }
+    __name(onKeyDown, "onKeyDown");
+    function midPoint() {
+      var ownerRect = owner.getBoundingClientRect();
+      return {
+        x: ownerRect.width / 2,
+        y: ownerRect.height / 2
+      };
+    }
+    __name(midPoint, "midPoint");
+    function onTouch(e) {
+      if (beforeTouch(e), clearPendingClickEventTimeout(), e.touches.length === 1)
+        return handleSingleFingerTouch(e, e.touches[0]);
+      e.touches.length === 2 && (pinchZoomLength = getPinchZoomLength(e.touches[0], e.touches[1]), multiTouch = !0, startTouchListenerIfNeeded());
+    }
+    __name(onTouch, "onTouch");
+    function beforeTouch(e) {
+      options.onTouch && !options.onTouch(e) || (e.stopPropagation(), e.preventDefault());
+    }
+    __name(beforeTouch, "beforeTouch");
+    function beforeDoubleClick(e) {
+      clearPendingClickEventTimeout(), !(options.onDoubleClick && !options.onDoubleClick(e)) && (e.preventDefault(), e.stopPropagation());
+    }
+    __name(beforeDoubleClick, "beforeDoubleClick");
+    function handleSingleFingerTouch(e) {
+      lastTouchStartTime = /* @__PURE__ */ new Date();
+      var touch = e.touches[0], offset = getOffsetXY(touch);
+      lastSingleFingerOffset = offset;
+      var point = transformToScreen(offset.x, offset.y);
+      mouseX = point.x, mouseY = point.y, clickX = mouseX, clickY = mouseY, smoothScroll.cancel(), startTouchListenerIfNeeded();
+    }
+    __name(handleSingleFingerTouch, "handleSingleFingerTouch");
+    function startTouchListenerIfNeeded() {
+      touchInProgress || (touchInProgress = !0, document.addEventListener("touchmove", handleTouchMove), document.addEventListener("touchend", handleTouchEnd), document.addEventListener("touchcancel", handleTouchEnd));
+    }
+    __name(startTouchListenerIfNeeded, "startTouchListenerIfNeeded");
+    function handleTouchMove(e) {
+      if (e.touches.length === 1) {
+        e.stopPropagation();
+        var touch = e.touches[0], offset = getOffsetXY(touch), point = transformToScreen(offset.x, offset.y), dx = point.x - mouseX, dy = point.y - mouseY;
+        dx !== 0 && dy !== 0 && triggerPanStart(), mouseX = point.x, mouseY = point.y, internalMoveBy(dx, dy);
+      } else if (e.touches.length === 2) {
+        multiTouch = !0;
+        var t1 = e.touches[0], t2 = e.touches[1], currentPinchLength = getPinchZoomLength(t1, t2), scaleMultiplier = 1 + (currentPinchLength / pinchZoomLength - 1) * pinchSpeed, firstTouchPoint = getOffsetXY(t1), secondTouchPoint = getOffsetXY(t2);
+        if (mouseX = (firstTouchPoint.x + secondTouchPoint.x) / 2, mouseY = (firstTouchPoint.y + secondTouchPoint.y) / 2, transformOrigin) {
+          var offset = getTransformOriginOffset();
+          mouseX = offset.x, mouseY = offset.y;
+        }
+        publicZoomTo(mouseX, mouseY, scaleMultiplier), pinchZoomLength = currentPinchLength, e.stopPropagation(), e.preventDefault();
+      }
+    }
+    __name(handleTouchMove, "handleTouchMove");
+    function clearPendingClickEventTimeout() {
+      pendingClickEventTimeout && (clearTimeout(pendingClickEventTimeout), pendingClickEventTimeout = 0);
+    }
+    __name(clearPendingClickEventTimeout, "clearPendingClickEventTimeout");
+    function handlePotentialClickEvent(e) {
+      if (options.onClick) {
+        clearPendingClickEventTimeout();
+        var dx = mouseX - clickX, dy = mouseY - clickY, l = Math.sqrt(dx * dx + dy * dy);
+        l > 5 || (pendingClickEventTimeout = setTimeout(function() {
+          pendingClickEventTimeout = 0, options.onClick(e);
+        }, doubleTapSpeedInMS));
+      }
+    }
+    __name(handlePotentialClickEvent, "handlePotentialClickEvent");
+    function handleTouchEnd(e) {
+      if (clearPendingClickEventTimeout(), e.touches.length > 0) {
+        var offset = getOffsetXY(e.touches[0]), point = transformToScreen(offset.x, offset.y);
+        mouseX = point.x, mouseY = point.y;
+      } else {
+        var now = /* @__PURE__ */ new Date();
+        if (now - lastTouchEndTime < doubleTapSpeedInMS)
+          if (transformOrigin) {
+            var offset = getTransformOriginOffset();
+            smoothZoom(offset.x, offset.y, zoomDoubleClickSpeed);
+          } else
+            smoothZoom(lastSingleFingerOffset.x, lastSingleFingerOffset.y, zoomDoubleClickSpeed);
+        else now - lastTouchStartTime < clickEventTimeInMS && handlePotentialClickEvent(e);
+        lastTouchEndTime = now, triggerPanEnd(), releaseTouches();
+      }
+    }
+    __name(handleTouchEnd, "handleTouchEnd");
+    function getPinchZoomLength(finger1, finger2) {
+      var dx = finger1.clientX - finger2.clientX, dy = finger1.clientY - finger2.clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+    __name(getPinchZoomLength, "getPinchZoomLength");
+    function onDoubleClick(e) {
+      beforeDoubleClick(e);
+      var offset = getOffsetXY(e);
+      transformOrigin && (offset = getTransformOriginOffset()), smoothZoom(offset.x, offset.y, zoomDoubleClickSpeed);
+    }
+    __name(onDoubleClick, "onDoubleClick");
+    function onMouseDown(e) {
+      if (clearPendingClickEventTimeout(), !beforeMouseDown(e)) {
+        if (lastMouseDownedEvent = e, lastMouseDownTime = /* @__PURE__ */ new Date(), touchInProgress)
+          return e.stopPropagation(), !1;
+        var isLeftButton = e.button === 1 && window.event !== null || e.button === 0;
+        if (isLeftButton) {
+          smoothScroll.cancel();
+          var offset = getOffsetXY(e), point = transformToScreen(offset.x, offset.y);
+          return clickX = mouseX = point.x, clickY = mouseY = point.y, document.addEventListener("mousemove", onMouseMove), document.addEventListener("mouseup", onMouseUp), textSelection.capture(e.target || e.srcElement), !1;
+        }
+      }
+    }
+    __name(onMouseDown, "onMouseDown");
+    function onMouseMove(e) {
+      if (!touchInProgress) {
+        triggerPanStart();
+        var offset = getOffsetXY(e), point = transformToScreen(offset.x, offset.y), dx = point.x - mouseX, dy = point.y - mouseY;
+        mouseX = point.x, mouseY = point.y, internalMoveBy(dx, dy);
+      }
+    }
+    __name(onMouseMove, "onMouseMove");
+    function onMouseUp() {
+      var now = /* @__PURE__ */ new Date();
+      now - lastMouseDownTime < clickEventTimeInMS && handlePotentialClickEvent(lastMouseDownedEvent), textSelection.release(), triggerPanEnd(), releaseDocumentMouse();
+    }
+    __name(onMouseUp, "onMouseUp");
+    function releaseDocumentMouse() {
+      document.removeEventListener("mousemove", onMouseMove), document.removeEventListener("mouseup", onMouseUp), panstartFired = !1;
+    }
+    __name(releaseDocumentMouse, "releaseDocumentMouse");
+    function releaseTouches() {
+      document.removeEventListener("touchmove", handleTouchMove), document.removeEventListener("touchend", handleTouchEnd), document.removeEventListener("touchcancel", handleTouchEnd), panstartFired = !1, multiTouch = !1, touchInProgress = !1;
+    }
+    __name(releaseTouches, "releaseTouches");
+    function onMouseWheel(e) {
+      if (!beforeWheel(e)) {
+        smoothScroll.cancel();
+        var delta = e.deltaY;
+        e.deltaMode > 0 && (delta *= 100);
+        var scaleMultiplier = getScaleMultiplier(delta);
+        if (scaleMultiplier !== 1) {
+          var offset = transformOrigin ? getTransformOriginOffset() : getOffsetXY(e);
+          publicZoomTo(offset.x, offset.y, scaleMultiplier), e.preventDefault();
+        }
+      }
+    }
+    __name(onMouseWheel, "onMouseWheel");
+    function getOffsetXY(e) {
+      var offsetX, offsetY, ownerRect = owner.getBoundingClientRect();
+      return offsetX = e.clientX - ownerRect.left, offsetY = e.clientY - ownerRect.top, { x: offsetX, y: offsetY };
+    }
+    __name(getOffsetXY, "getOffsetXY");
+    function smoothZoom(clientX, clientY, scaleMultiplier) {
+      var fromValue = transform2.scale, from = { scale: fromValue }, to = { scale: scaleMultiplier * fromValue };
+      smoothScroll.cancel(), cancelZoomAnimation(), zoomToAnimation = animate(from, to, {
+        step: /* @__PURE__ */ __name(function(v) {
+          zoomAbs(clientX, clientY, v.scale);
+        }, "step"),
+        done: triggerZoomEnd
+      });
+    }
+    __name(smoothZoom, "smoothZoom");
+    function smoothZoomAbs(clientX, clientY, toScaleValue) {
+      var fromValue = transform2.scale, from = { scale: fromValue }, to = { scale: toScaleValue };
+      smoothScroll.cancel(), cancelZoomAnimation(), zoomToAnimation = animate(from, to, {
+        step: /* @__PURE__ */ __name(function(v) {
+          zoomAbs(clientX, clientY, v.scale);
+        }, "step")
+      });
+    }
+    __name(smoothZoomAbs, "smoothZoomAbs");
+    function getTransformOriginOffset() {
+      var ownerRect = owner.getBoundingClientRect();
+      return {
+        x: ownerRect.width * transformOrigin.x,
+        y: ownerRect.height * transformOrigin.y
+      };
+    }
+    __name(getTransformOriginOffset, "getTransformOriginOffset");
+    function publicZoomTo(clientX, clientY, scaleMultiplier) {
+      return smoothScroll.cancel(), cancelZoomAnimation(), zoomByRatio(clientX, clientY, scaleMultiplier);
+    }
+    __name(publicZoomTo, "publicZoomTo");
+    function cancelZoomAnimation() {
+      zoomToAnimation && (zoomToAnimation.cancel(), zoomToAnimation = null);
+    }
+    __name(cancelZoomAnimation, "cancelZoomAnimation");
+    function getScaleMultiplier(delta) {
+      var sign = Math.sign(delta), deltaAdjustedSpeed = Math.min(0.25, Math.abs(speed * delta / 128));
+      return 1 - sign * deltaAdjustedSpeed;
+    }
+    __name(getScaleMultiplier, "getScaleMultiplier");
+    function triggerPanStart() {
+      panstartFired || (triggerEvent("panstart"), panstartFired = !0, smoothScroll.start());
+    }
+    __name(triggerPanStart, "triggerPanStart");
+    function triggerPanEnd() {
+      panstartFired && (multiTouch || smoothScroll.stop(), triggerEvent("panend"));
+    }
+    __name(triggerPanEnd, "triggerPanEnd");
+    function triggerZoomEnd() {
+      triggerEvent("zoomend");
+    }
+    __name(triggerZoomEnd, "triggerZoomEnd");
+    function triggerEvent(name) {
+      api.fire(name, api);
+    }
+    __name(triggerEvent, "triggerEvent");
+  }
+  __name(createPanZoom2, "createPanZoom");
+  function parseTransformOrigin(options) {
+    if (options) {
+      if (typeof options == "object")
+        return (!isNumber(options.x) || !isNumber(options.y)) && failTransformOrigin(options), options;
+      failTransformOrigin();
+    }
+  }
+  __name(parseTransformOrigin, "parseTransformOrigin");
+  function failTransformOrigin(options) {
+    throw console.error(options), new Error(
+      [
+        "Cannot parse transform origin.",
+        "Some good examples:",
+        '  "center center" can be achieved with {x: 0.5, y: 0.5}',
+        '  "top center" can be achieved with {x: 0.5, y: 0}',
+        '  "bottom right" can be achieved with {x: 1, y: 1}'
+      ].join(`
+`)
+    );
+  }
+  __name(failTransformOrigin, "failTransformOrigin");
+  function noop() {
+  }
+  __name(noop, "noop");
+  function validateBounds(bounds) {
+    var boundsType = typeof bounds;
+    if (!(boundsType === "undefined" || boundsType === "boolean")) {
+      var validBounds = isNumber(bounds.left) && isNumber(bounds.top) && isNumber(bounds.bottom) && isNumber(bounds.right);
+      if (!validBounds)
+        throw new Error(
+          "Bounds object is not valid. It can be: undefined, boolean (true|false) or an object {left, top, right, bottom}"
+        );
+    }
+  }
+  __name(validateBounds, "validateBounds");
+  function isNumber(x) {
+    return Number.isFinite(x);
+  }
+  __name(isNumber, "isNumber");
+  function isNaN(value) {
+    return Number.isNaN ? Number.isNaN(value) : value !== value;
+  }
+  __name(isNaN, "isNaN");
+  function rigidScroll() {
+    return {
+      start: noop,
+      stop: noop,
+      cancel: noop
+    };
+  }
+  __name(rigidScroll, "rigidScroll");
+  function autoRun() {
+    if (typeof document > "u") return;
+    var scripts = document.getElementsByTagName("script");
+    if (!scripts) return;
+    for (var panzoomScript, i = 0; i < scripts.length; ++i) {
+      var x = scripts[i];
+      if (x.src && x.src.match(/\bpanzoom(\.min)?\.js/)) {
+        panzoomScript = x;
+        break;
+      }
+    }
+    if (!panzoomScript) return;
+    var query = panzoomScript.getAttribute("query");
+    if (!query) return;
+    var globalName = panzoomScript.getAttribute("name") || "pz", started = Date.now();
+    tryAttach();
+    function tryAttach() {
+      var el = document.querySelector(query);
+      if (!el) {
+        var now = Date.now(), elapsed = now - started;
+        if (elapsed < 2e3) {
+          setTimeout(tryAttach, 100);
+          return;
+        }
+        console.error("Cannot find the panzoom element", globalName);
+        return;
+      }
+      var options = collectOptions(panzoomScript);
+      console.log(options), window[globalName] = createPanZoom2(el, options);
+    }
+    __name(tryAttach, "tryAttach");
+    function collectOptions(script) {
+      for (var attrs = script.attributes, options = {}, j = 0; j < attrs.length; ++j) {
+        var attr = attrs[j], nameValue = getPanzoomAttributeNameValue(attr);
+        nameValue && (options[nameValue.name] = nameValue.value);
+      }
+      return options;
+    }
+    __name(collectOptions, "collectOptions");
+    function getPanzoomAttributeNameValue(attr) {
+      if (attr.name) {
+        var isPanZoomAttribute = attr.name[0] === "p" && attr.name[1] === "z" && attr.name[2] === "-";
+        if (isPanZoomAttribute) {
+          var name = attr.name.substr(3), value = JSON.parse(attr.value);
+          return { name, value };
+        }
+      }
+    }
+    __name(getPanzoomAttributeNameValue, "getPanzoomAttributeNameValue");
+  }
+  return __name(autoRun, "autoRun"), autoRun(), panzoom;
+}
+__name(requirePanzoom, "requirePanzoom");
+var panzoomExports = requirePanzoom();
+const createPanZoom = /* @__PURE__ */ getDefaultExportFromCjs(panzoomExports), _CallGraph = class _CallGraph {
+  constructor(svg, focus, onSelectElem) {
+    __publicField(this, "svg");
+    __publicField(this, "nodes");
+    __publicField(this, "edges");
+    __publicField(this, "clusters");
+    __publicField(this, "width");
+    __publicField(this, "height");
+    __publicField(this, "selectedElem", null);
+    __publicField(this, "panZoomState");
+    __publicField(this, "focus");
+    __publicField(this, "incomings");
+    __publicField(this, "outgoings");
+    __publicField(this, "onSelectElem", /* @__PURE__ */ __name((elem) => {
+      if (this.resetStyles(), this.selectedElem = elem, !elem)
+        return;
+      const { pz, scale, cx, cy, sRect } = this.panZoomState, eRect = elem.getBoundingClientRect();
+      eRect.width > sRect.width || eRect.height > sRect.height ? (pz.smoothZoomAbs(cx, cy, scale), setTimeout(() => pz.centerOn(elem), 1e3)) : (eRect.left < sRect.left || eRect.top < sRect.top || eRect.right > sRect.right || eRect.bottom > sRect.bottom) && pz.centerOn(elem);
+      const classes = elem.classList;
+      classes.contains("node") ? this.onSelectNode(elem) : classes.contains("cell") ? this.onSelectCell(elem) : classes.contains("edge") ? this.onSelectEdge(elem) : classes.contains("cluster-label") && this.onSelctCluster(elem);
+    }, "onSelectElem"));
+    if (this.svg = svg, this.nodes = svg.querySelectorAll("g.node"), this.edges = svg.querySelectorAll("g.edge"), this.clusters = svg.querySelectorAll("g.cluster"), this.width = this.svg.viewBox.baseVal.width, this.height = this.svg.viewBox.baseVal.height, this.setUpInteraction(onSelectElem ?? this.onSelectElem), this.focus = focus, focus) {
+      const incomings = /* @__PURE__ */ new Map(), outgoings = /* @__PURE__ */ new Map();
+      this.edges.forEach((edge) => {
+        var _a, _b;
+        const fromCell = edge.dataset.from, toCell = edge.dataset.to;
+        ((_a = incomings.get(toCell)) == null ? void 0 : _a.push(edge)) ?? incomings.set(toCell, [edge]), ((_b = outgoings.get(fromCell)) == null ? void 0 : _b.push(edge)) ?? outgoings.set(fromCell, [edge]);
+      }), this.incomings = incomings, this.outgoings = outgoings;
+    }
+  }
+  setUpInteraction(onSelectElem) {
+    const svg = this.svg;
+    let clickPoint = [0, 0];
+    svg.onmousedown = function(e) {
+      clickPoint = [e.pageX, e.pageY];
+    }, svg.onmouseup = function(e) {
+      const [x, y] = clickPoint, diffX = Math.abs(e.pageX - x), diffY = Math.abs(e.pageY - y);
+      if (!(diffX > 6 || diffY > 6)) {
+        for (let elem = e.target; elem && elem instanceof SVGElement && elem !== svg; elem = elem.parentNode) {
+          const classes = elem.classList;
+          if (classes.contains("node") || classes.contains("cell") || classes.contains("edge") || classes.contains("cluster-label")) {
+            onSelectElem(elem);
+            return;
+          }
+        }
+        onSelectElem(null);
+      }
+    };
+  }
+  setUpPanZoom() {
+    this.panZoomState = this.createPanZoomState();
+  }
+  createPanZoomState() {
+    const g0 = this.svg.querySelector("#graph0"), pz = createPanZoom(g0, {
+      smoothScroll: !1,
+      autocenter: !0
+    }), { x, y, scale } = structuredClone(pz.getTransform()), cRect = g0.getBoundingClientRect(), cx = cRect.x + cRect.width / 2, cy = cRect.y + cRect.height / 2, sRect = this.svg.getBoundingClientRect();
+    return {
+      pz,
+      scale,
+      x,
+      y,
+      cx,
+      cy,
+      sRect
+    };
+  }
+  resetStyles() {
+    var _a, _b;
+    const g0 = this.svg.getElementById("graph0"), fadedGroup = this.svg.getElementById("faded-group");
+    (_b = (_a = this.selectedElem) == null ? void 0 : _a.closest(".selected")) == null || _b.classList.remove("selected"), g0.querySelectorAll(":scope > .edge").forEach(
+      (edge) => edge.classList.remove("incoming", "outgoing")
+    );
+    const firstNode = g0.querySelector(".node");
+    for (const cluster of fadedGroup.querySelectorAll(".cluster"))
+      g0.insertBefore(cluster, firstNode);
+    for (const node of fadedGroup.querySelectorAll(".node"))
+      g0.insertBefore(node, firstNode);
+    g0.append(...fadedGroup.childNodes);
+  }
+  smoothZoom(scale) {
+    if (!this.panZoomState)
+      return;
+    const { pz, cx, cy } = this.panZoomState;
+    pz.smoothZoom(cx, cy, scale);
+  }
+  resetPanZoom() {
+    if (!this.panZoomState)
+      return;
+    const { pz, x, y, scale } = this.panZoomState;
+    pz.moveTo(x, y), pz.zoomAbs(x, y, scale);
+  }
+  onSelectNode(node) {
+    const id = node.id;
+    this.highlightEdges((edge) => [
+      edge.dataset.to.startsWith(`${id}:`),
+      edge.dataset.from.startsWith(`${id}:`)
+    ]), node.classList.add("selected"), this.fadeOutNodes(/* @__PURE__ */ new Set([id]));
+  }
+  onSelectCell(cell) {
+    const id = cell.id;
+    if (this.focus)
+      this.onSelectCellInFocusMode(id);
+    else {
+      const cellIds = /* @__PURE__ */ new Set([cell.id]);
+      cell.querySelectorAll(".cell").forEach((c) => {
+        cellIds.add(c.id);
+      }), this.highlightEdges((edge) => [
+        cellIds.has(edge.dataset.to),
+        cellIds.has(edge.dataset.from)
+      ]);
+    }
+    cell.classList.add("selected"), this.fadeOutNodes(/* @__PURE__ */ new Set([this.getNodeId(cell.id)]));
+  }
+  onSelectCellInFocusMode(cellId) {
+    const highlights = [/* @__PURE__ */ new Set(), /* @__PURE__ */ new Set()], inout = [this.incomings, this.outgoings];
+    for (let i = 0; i < inout.length; ++i) {
+      const visited = /* @__PURE__ */ new Set([cellId, this.focus]), map = inout[i], highlightEdges = highlights[i];
+      for (let newEdges = map.get(cellId) ?? []; newEdges.length > 0; )
+        newEdges = newEdges.flatMap((edge) => {
+          highlightEdges.add(edge);
+          const id = i == 0 ? edge.dataset.from : edge.dataset.to;
+          return visited.has(id) ? [] : (visited.add(id), map.get(id) ?? []);
+        });
+    }
+    this.highlightEdges((edge) => [
+      highlights[0].has(edge),
+      highlights[1].has(edge)
+    ]), this.fadeOutNodes(/* @__PURE__ */ new Set([this.getNodeId(cellId)]));
+  }
+  onSelectEdge(edge) {
+    const g0 = this.svg.getElementById("graph0");
+    this.svg.getElementById("faded-group").append(...this.edges), g0.appendChild(edge), this.fadeOutNodes();
+  }
+  onSelctCluster(clusterLabel) {
+    const cluster = clusterLabel.parentNode, rect = cluster.getBoundingClientRect();
+    cluster.classList.add("selected");
+    const selected = /* @__PURE__ */ new Set();
+    this.nodes.forEach((node) => {
+      this.rectContains(rect, node.getBoundingClientRect()) && selected.add(node.id);
+    }), this.highlightEdges((edge) => [
+      selected.has(this.getNodeId(edge.dataset.to)),
+      selected.has(this.getNodeId(edge.dataset.from))
+    ]), this.fadeOutNodes(selected);
+  }
+  highlightEdges(judge) {
+    const fadedGroup = this.svg.getElementById("faded-group");
+    for (const edge of this.edges) {
+      const [incoming, outgoing] = judge(edge);
+      incoming && edge.classList.add("incoming"), outgoing && edge.classList.add("outgoing"), incoming || outgoing || fadedGroup.appendChild(edge);
+    }
+  }
+  fadeOutNodes(kept) {
+    kept || (kept = /* @__PURE__ */ new Set());
+    const fadedGroup = this.svg.getElementById("faded-group");
+    for (const edge of this.edges)
+      edge.parentElement !== fadedGroup && kept.add(this.getNodeId(edge.dataset.from)).add(this.getNodeId(edge.dataset.to));
+    const clusters = new Set(this.clusters);
+    for (const node of this.nodes) {
+      if (!kept.has(node.id)) {
+        fadedGroup.appendChild(node);
+        continue;
+      }
+      const rect = node.getBoundingClientRect();
+      for (const cluster of clusters)
+        this.rectContains(cluster.getBoundingClientRect(), rect) && clusters.delete(cluster);
+    }
+    fadedGroup.append(...clusters);
+  }
+  getNodeId(id) {
+    return id.substring(0, id.indexOf(":"));
+  }
+  rectContains(rect1, rect2) {
+    return rect1.left < rect2.left && rect1.right > rect2.right && rect1.bottom > rect2.bottom && rect1.top < rect2.top;
+  }
+};
+__name(_CallGraph, "CallGraph");
+let CallGraph = _CallGraph;
+export {
+  CallGraph
+};
+
+try{const svgEl=document.querySelector('.callgraph');if(svgEl&& typeof CallGraph!=='undefined'){const g=new CallGraph(svgEl,null);g.setUpPanZoom();}}catch{}</script></body></html>

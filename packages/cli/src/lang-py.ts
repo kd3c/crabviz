@@ -2,14 +2,21 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
 import { LspClient } from './lsp-manager.js';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { Edge, NodeInfo } from './types.js';
 
 const importRe = /^\s*(?:from\s+([.\w]+)\s+import\s+[\w*,\s]+|import\s+([\w.]+))/gm;
 
+interface ScanPyOpts { engine: 'static' | 'lsp'; }
+
+export interface StaticAnalysisResult { rawJson?: string; moduleMap?: Record<string,string>; }
+
 export async function scanPy(
   roots: string[],
-  client: LspClient
-): Promise<{ nodes: NodeInfo[]; edges: Edge[] }> {
+  client: LspClient | null,
+  opts: ScanPyOpts
+): Promise<{ nodes: NodeInfo[]; edges: Edge[]; staticResult?: StaticAnalysisResult }> {
   const files = await fg(roots.map(r => `${r.replace(/\\/g,'/')}/**/*.py`), { dot:false });
   // Build module name -> path map for absolute imports (within provided roots)
   const moduleMap = new Map<string,string>();
@@ -79,7 +86,9 @@ export async function scanPy(
   for (const f of files) {
     const text = readFileSync(f, 'utf8');
     nodes.push({ id: f, lang: 'py' });
-    await client.didOpen(f, 'python', text);
+    if (client && opts.engine==='lsp') {
+      await client.didOpen(f, 'python', text);
+    }
 
     let m: RegExpExecArray | null;
   while ((m = importRe.exec(text))) {
@@ -96,5 +105,56 @@ export async function scanPy(
   // If no edges resolved for this file and we want richer graph, attempt simple intra-package link by matching sibling imports
   // (skip if edges already found globally)
   }
-  return { nodes, edges };
+  // Stage 2: if static engine, invoke external analyzer for potential future function-level integration (not yet merged into edges/nodes schema here).
+  let staticResult: StaticAnalysisResult | undefined;
+  if (opts.engine === 'static') {
+    try {
+      const repoRoot = resolve(roots[0]);
+      // Attempt to locate py_callscan.py walking upward from repoRoot.
+      const candidates: string[] = [];
+      let cur = repoRoot;
+      for (let i=0;i<5;i++) { // up to 5 levels
+        candidates.push(resolve(cur, 'scripts', 'py_callscan.py'));
+        const parent = resolve(cur, '..');
+        if (parent === cur) break;
+        cur = parent;
+      }
+      candidates.push(resolve(process.cwd(), 'scripts', 'py_callscan.py'));
+      let scriptPath: string | null = null;
+      for (const c of candidates) { if (existsSync(c)) { scriptPath = c; break; } }
+      if (scriptPath) {
+        const pyCmds = ['python','py'];
+        let run;
+        for (const cmd of pyCmds) {
+          run = spawnSync(cmd, [scriptPath, '--root', repoRoot, '--max-file-size', '1000000'], { encoding: 'utf-8' });
+          if (!run.error) break;
+        }
+    if (run && run.status === 0) {
+          if ((process.env.CRV_DEBUG||'').includes('py')) {
+            console.error(`[py-static] scanned: ${scriptPath} bytesOut=${run.stdout.length}`);
+          }
+          // (Deferred) Parse JSON and integrate call edges in later stage.
+          try {
+            const parsed = JSON.parse(run.stdout);
+            const fCount = parsed.functions?.length ?? 0;
+            const eCount = parsed.edges?.length ?? 0;
+    console.error(`[py-static] summary functions=${fCount} edges=${eCount} unresolved=${parsed.unresolved_calls?.length||0}`);
+  // Export module->file path map for later static graph reconstruction
+  const mMap: Record<string,string> = {};
+  for (const [mod,path] of moduleMap.entries()) mMap[mod]=path;
+  staticResult = { rawJson: run.stdout, moduleMap: mMap };
+          } catch (e:any) {
+            console.error('[py-static] failed to parse analyzer JSON', e?.message||e);
+          }
+        } else if (run) {
+          console.error(`[py-static] analyzer failed status=${run.status} err=${run.error||''}`);
+        }
+      } else {
+        console.error('[py-static] py_callscan.py not found; skipping static analysis augmentation');
+      }
+    } catch (e:any) {
+      console.error('[py-static] error invoking analyzer', e?.message||e);
+    }
+  }
+  return { nodes, edges, staticResult };
 }

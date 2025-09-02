@@ -6,8 +6,9 @@
     "crabviz": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/cli.js"
+  "build": "tsc -p tsconfig.json",
+  "start": "node dist/cli.js",
+  "verify-pyscan": "npm run build && node dist/verify-pyscan.js"
   },
   "dependencies": {
     "fast-glob": "^3.3.2",
