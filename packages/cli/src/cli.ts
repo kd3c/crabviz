@@ -21,7 +21,8 @@ type Args = {
   renderer: "export" | "viz";   // export = extension-like, viz = minimal
   format: "html" | "svg";       // only used with renderer=export
   uiFile: boolean;                // new: use file-level interactive pipeline
-  maxDepth?: number;              // call graph recursion depth limit
+  maxDepth?: number;              // (deprecated) original recursion depth limit (0 previously disabled calls)
+  callDepth?: number;             // new: external call hierarchy depth (0=file-level only, 1=direct calls, N>=2 deeper)
   impl?: boolean;                 // include implementation edges
   trimLastDepth?: boolean;        // drop deepest depth relations (one level before leaf)
   quiet?: boolean;                // suppress log output
@@ -35,14 +36,16 @@ async function main() {
     .option("roots", { type: "array", demandOption: true })
     .option("out", { type: "string", demandOption: true })
     .option("simplified", { type: "boolean", default: false })
-  .option("max-depth", { type: "number", describe: "Max recursive call hierarchy depth (default unlimited)", default: 0 })
+  // Deprecated: --max-depth (legacy: 0 meant *no* calls). Keep for backward compatibility.
+  .option("max-depth", { type: "number", describe: "[DEPRECATED] Use --call-depth instead. Legacy: 0 = no call edges.", default: undefined })
+  .option("call-depth", { type: "number", describe: "Call hierarchy depth: 0=file-level only (imports), 1=direct calls, N=multi-hop. (default: 1)", default: 1 })
   .option("impl", { type: "boolean", describe: "Include interface implementation edges", default: true })
   .option("trim-last-depth", { type: "boolean", describe: "Trim the deepest collected call depth (one level before leaves)", default: false })
   .option("quiet", { type: "boolean", describe: "Suppress log / debug output", default: false })
   .option("renderer", { type: "string", choices: ["export","viz"] as const, default: "export" })
     .option("format", { type: "string", choices: ["html","svg"] as const, default: "html" })
   .option("ui-file", { type: "boolean", default: false, describe: "Use file-level UI-style interactive export (no function symbols yet)" })
-  .option("symbol-depth", { type: "number", describe: "Limit symbol nesting depth for --ui-file export. 0 = no symbols (file rows only), 1 = top-level symbols, etc. (default: unlimited for detailed, 0 for --simplified)", default: -1 })
+  .option("symbol-depth", { type: "number", describe: "Limit symbol nesting depth for --ui-file export. 0 = files only, 1 = files & functions, 2 = files, functions & arguments. (default: 1)", default: 1 })
   .option("rankdir", { type: "string", choices: ["LR","TB"], describe: "Graph layout direction (LR=left-right, TB=top-bottom)", default: "LR" })
   .option("files-per-row", { type: "number", describe: "When --rankdir=TB, pack up to N file nodes per horizontal row within a folder", default: 0 })
     .help().argv) as unknown as Args;
@@ -70,6 +73,16 @@ async function main() {
     const tsPart = await scanTs(roots, tsClient);
     const pyPart = await scanPy(roots, pyClient);
     const gd     = mergeGraphs([tsPart, pyPart]);
+
+    // Determine effective call depth semantics
+    // Priority: explicit --call-depth > legacy --max-depth > default (1)
+    const legacyMaxDepth = argv.maxDepth;
+    const callDepth = (typeof argv.callDepth === 'number' && !Number.isNaN(argv.callDepth))
+      ? argv.callDepth!
+      : (typeof legacyMaxDepth === 'number' ? legacyMaxDepth : 1);
+    if (legacyMaxDepth !== undefined && argv.callDepth === undefined && !argv.quiet) {
+      console.error('[crabviz] --max-depth is deprecated; use --call-depth. Interpreting value as call-depth.');
+    }
 
     if (argv.uiFile && argv.renderer === 'export' && argv.format === 'html') {
         const symbolDepthFlag = (argv.symbolDepth ?? -1);
@@ -152,8 +165,12 @@ async function main() {
   const pyFiles = fileIds.filter(f=> /\.py$/i.test(f));
   const tsFiles = fileIds.filter(f=> !/\.py$/i.test(f));
   const subGraphs: any[] = [];
-  if (tsFiles.length) subGraphs.push(await buildSymbolGraph(tsFiles, tsClient, { collapse:false, maxDepth: argv.maxDepth||0, includeImpl: argv.impl!==false, trimLastDepth: argv.trimLastDepth }));
-  if (pyFiles.length) subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, { collapse:false, maxDepth: argv.maxDepth||0, includeImpl: argv.impl!==false, trimLastDepth: argv.trimLastDepth }));
+  // Map callDepth to internal maxDepth: internal maxDepth = callDepth (depth levels collected are 0..callDepth-1)
+  // Special case: callDepth 0 => skipCalls (file-level only)
+  const internalMaxDepth = callDepth <= 0 ? 0 : callDepth; // pass through for readability
+  const buildOptsBase = (skipCalls:boolean) => ({ collapse:false, maxDepth: internalMaxDepth, includeImpl: argv.impl!==false, trimLastDepth: argv.trimLastDepth, skipCalls });
+  if (tsFiles.length) subGraphs.push(await buildSymbolGraph(tsFiles, tsClient, buildOptsBase(callDepth === 0)));
+  if (pyFiles.length) subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, buildOptsBase(callDepth === 0)));
   const symGraph = { files: [] as any[], relations: [] as any[] };
   let nextId = 0; const idRemap = new Map<string, number>();
   for (const sg of subGraphs) {
@@ -189,7 +206,9 @@ async function main() {
     }
   }
   const rootDir = fileIds.length ? resolve(fileIds[0], '..') : process.cwd();
-  const svg = await renderSymbolGraph(symGraph, rootDir, false, effectiveSymbolDepthDetailed);
+  // If callDepth=0 force symbol depth to 0 for pure file-level view (unless user explicitly set a positive symbolDepth)
+  const effSymDepth = callDepth === 0 ? 0 : effectiveSymbolDepthDetailed;
+  const svg = await renderSymbolGraph(symGraph, rootDir, false, effSymDepth);
         const fsMod = await import('node:fs');
         function readAsset(rel:string, optional=false){
           const attempt = [
