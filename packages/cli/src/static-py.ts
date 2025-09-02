@@ -38,10 +38,14 @@ export function buildStaticPyGraph(jsonText:string, moduleMap?: Record<string,st
   // Assign stable numeric ids
   let nextId = 0; for (const file of filesByPath.values()) file.id = nextId++;
   const relations: Relation[] = [];
+  const relSeen = new Set<string>();
   for (const e of parsed.edges) {
     const from = symByQual.get(e.caller);
     const to = symByQual.get(e.callee);
     if (!from || !to) continue;
+    const key = `${from.file.id}:${from.symbol.range.start.line}->${to.file.id}:${to.symbol.range.start.line}`;
+    if (relSeen.has(key)) continue;
+    relSeen.add(key);
     relations.push({ from: { fileId: from.file.id, line: from.symbol.range.start.line, character: from.symbol.range.start.character }, to:{ fileId: to.file.id, line: to.symbol.range.start.line, character: to.symbol.range.start.character }, kind: RelationKind.Call, provenance: 'static-py' });
   }
   return { files: Array.from(filesByPath.values()), relations };

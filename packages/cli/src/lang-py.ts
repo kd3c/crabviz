@@ -146,7 +146,8 @@ export async function scanPy(
     try {
       // Allow explicit override
       const override = process.env.CRABVIZ_PY_ANALYZER && existsSync(process.env.CRABVIZ_PY_ANALYZER) ? process.env.CRABVIZ_PY_ANALYZER : null;
-      const repoRoot = resolve(roots[0]);
+  // Run analyzer separately per root (script only supports single --root); then merge JSON blobs
+  const repoRoot = resolve(roots[0]);
       const candidates: string[] = [];
       if (override) candidates.push(override);
       // Walk upward from first root (may be external) just in case repo scripts dir is ancestor
@@ -177,11 +178,26 @@ export async function scanPy(
       if (scriptPath) {
         const pyCmds = ['python','py'];
         let run;
-        for (const cmd of pyCmds) {
-          run = spawnSync(cmd, [scriptPath, '--root', repoRoot, '--max-file-size', '1000000'], { encoding: 'utf-8' });
-          if (!run.error) break;
+        // Accumulate merged JSON across roots
+        let merged: any = { functions: [], edges: [], unresolved_calls: [] };
+        for (const rootDir of roots) {
+          for (const cmd of pyCmds) {
+            run = spawnSync(cmd, [scriptPath, '--root', resolve(rootDir), '--max-file-size', '1000000'], { encoding: 'utf-8' });
+            if (!run.error) break;
+          }
+          if (run && run.status === 0) {
+            try {
+              const parsed = JSON.parse(run.stdout);
+              merged.functions.push(...(parsed.functions||[]));
+              merged.edges.push(...(parsed.edges||[]));
+              merged.unresolved_calls.push(...(parsed.unresolved_calls||[]));
+            } catch {}
+          }
         }
-    if (run && run.status === 0) {
+    if (merged.functions.length) {
+          run = { status:0, stdout: JSON.stringify(merged), error:undefined } as any;
+        }
+    if (run && run.status === 0 && run.stdout) {
           if ((process.env.CRV_DEBUG||'').includes('py')) {
             console.error(`[py-static] scanned: ${scriptPath} bytesOut=${run.stdout.length}`);
           }
