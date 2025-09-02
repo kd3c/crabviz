@@ -184,7 +184,7 @@ async function main() {
     }
   }
   // Reuse existing file-level import edges (gd.edges) so relationships (arrows) appear like UI.
-  if (gd.edges?.length && showCallsMode !== 'none') {
+  if (gd.edges?.length && showCallsMode === 'file') {
     const idIndex = new Map(symGraph.files.map(f=> [f.path.replace(/\\/g,'/'), f.id] as const));
     const added = new Set<string>();
     for (const e of gd.edges) {
