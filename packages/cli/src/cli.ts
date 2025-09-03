@@ -350,6 +350,9 @@ async function main() {
           overlayScript = script;
         }
         const html = `<!DOCTYPE html><html><head><meta charset=utf-8><title>${he.encode('Crabviz Detailed')}</title><style>${theme}\n${css}</style></head><body>${svg.outerHTML}${ runtimeInit? `<script type=module>${runtimeInit}</script>`:''}${overlayScript}</body></html>`;
+        if (overlayInternalEdges && overlayInternalEdges.length && !argv.quiet) {
+          console.error('[crabviz] overlay script length', overlayScript.length, 'edges', overlayInternalEdges.length);
+        }
         await import('node:fs').then(m=> { m.writeFileSync(resolve(argv.out), html, 'utf8'); });
   if (!argv.quiet) console.log(`Wrote ${resolve(argv.out)} (export/html ui detailed)`); else process.stdout.write(resolve(argv.out));
         return;
