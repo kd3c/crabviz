@@ -294,10 +294,20 @@ function isCallLike(kind:number){
 
 // 2. Convert Graph to DOT using same hierarchy helpers as file-level path logic
 export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean, symbolDepth:number = Infinity): string {
-  // Reuse file-level hierarchy computation exactly
-  const baseNodes = convertToHierarchy(graph as any) as FileHierNode[]; // returns id, dir, file-level labelHtml
+  const cfg = getLayoutConfig();
+  const layout = (cfg as any).symbolLayout || 'table';
+  if ((process.env.CRV_DEBUG||'').includes('layout')) {
+    console.error('[sym] symbolGraphToDot layout=', layout);
+  }
+  if (layout === 'split') {
+    return symbolGraphToDotSplit(graph, symbolDepth);
+  }
+  if ((layout as any) === 'cluster') {
+    return symbolGraphToDotCluster(graph, symbolDepth);
+  }
+  // Legacy table path
+  const baseNodes = convertToHierarchy(graph as any) as FileHierNode[];
   const fileById = new Map(graph.files.map(f=> [f.id.toString(), f] as const));
-  // Precompute depth map for filtering relations later
   const depthByPort = new Set<string>();
   function markDepths(fileId:number, syms:Symbol[], depth:number){
     for (const s of syms){
@@ -307,31 +317,25 @@ export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean, sy
     }
   }
   for (const f of graph.files) markDepths(f.id, f.symbols, 1);
-
   const nodes: Node[] = baseNodes.map(n=> {
     const f = fileById.get(n.id)!;
-    // Show symbol rows up to depth regardless of collapse (collapse only affects edge aggregation)
     if (!f.symbols.length || symbolDepth<=0) return n as Node;
-    // Rebuild labelHtml with symbol rows appended (keep header row as first line)
     const headerMatch = /<TABLE[^>]*>(<TR><TD HREF=[^]*?<\/TR>)/.exec(n.labelHtml);
-    const headerRow = headerMatch ? headerMatch[1] : `<TR><TD HREF="${f.path}" WIDTH="230" BORDER="0" CELLPADDING="6">${escapeHtml(f.path.split(/[/\\]/).pop()||'')}</TD></TR>`;
-  const symRows = f.symbols.map(s=> symbolToCellDepth(f.id,s,1,symbolDepth, collapse)).filter(Boolean).join('\n');
+    const headerRow = headerMatch ? headerMatch[1] : `<TR><TD HREF="${f.path}" WIDTH="230" BORDER="0" CELLPADDING="6">${escapeHtml(f.path.split(/[\\/]/).pop()||'')}</TD></TR>`;
+    const symRows = f.symbols.map(s=> symbolToCellDepth(f.id,s,1,symbolDepth, collapse)).filter(Boolean).join('\n');
     const rebuilt = `<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="8" CELLPADDING="4">\n${headerRow}\n${symRows}\n<TR><TD CELLSPACING="0" HEIGHT="1" WIDTH="1" FIXEDSIZE="TRUE" STYLE="invis"></TD></TR>\n</TABLE>`;
     return { id:n.id, dir:n.dir, labelHtml:rebuilt };
   });
   const sub = buildSubgraphTree(nodes as unknown as FileHierNode[], '');
   const edges = collectEdges(graph.relations, collapse, depthByPort, symbolDepth);
-  if ((process.env.CRV_DEBUG||'').includes('dot')) console.error(`[sym] edges collected=${edges.length}`);
   const out:string[] = [];
   out.push('digraph G {');
-  const cfg = getLayoutConfig();
   out.push(`rankdir=${cfg.rankdir||'LR'};`);
   out.push('ranksep=2.0;');
   out.push('fontsize=16; fontname="Arial";');
   out.push('node [fontsize=16 fontname="Arial" shape=plaintext style=filled];');
   out.push('edge [arrowsize=1.5 label=" "];');
   if (sub) emitSubgraphDOT(sub, out, { v:0 }); else nodes.forEach(n=> out.push(`${n.id} [id="${n.id}" label=<${n.labelHtml}> shape=plaintext style=filled]`));
-  if ((process.env.CRV_DEBUG||'').includes('dot')) out.push('// EDGES-BEGIN');
   for (const e of edges){
     const attrs = [`id="${e.id}"`];
     if (e.tailport) attrs.push(`tailport="${e.tailport}"`);
@@ -339,11 +343,152 @@ export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean, sy
     if (e.class) attrs.push(`class="${e.class}"`);
     out.push(`${e.tail} -> ${e.head} [${attrs.join(' ')} label=" "];`);
   }
-  if ((process.env.CRV_DEBUG||'').includes('dot')) out.push('// EDGES-END');
   out.push('}');
   const dot = out.join('\n');
-  if ((process.env.CRV_DEBUG||'').includes('dot')) console.error('SYMBOL DOT\n'+dot.slice(0,2000));
+  if ((process.env.CRV_DEBUG||'').includes('dot')) console.error('[sym] table DOT sample', dot.slice(0,1200));
   return dot;
+}
+
+function symbolGraphToDotSplit(graph:Graph, symbolDepth:number): string {
+  const cfg = getLayoutConfig();
+  const out:string[] = [];
+  out.push('digraph G {');
+  out.push(`rankdir=${cfg.rankdir||'LR'};`);
+  out.push('ranksep=2.0;');
+  // Mitigate pathplan triangulation failures with dense intra-file edges
+  out.push('splines=true; overlap=false; concentrate=true;');
+  out.push('fontsize=16; fontname="Arial";');
+  out.push('node [fontsize=16 fontname="Arial" shape=plaintext style=filled];');
+  out.push('edge [arrowsize=1.5 label=" "];');
+  // Build per-file clusters with hub + symbol nodes
+  const fileHubId = (fId:number)=> `f${fId}_hub`;
+  const symNodeId = (fId:number, s:Symbol)=> `f${fId}_l${s.range.start.line}c${s.range.start.character}`;
+  function walkSymbols(fId:number, syms:Symbol[], depth:number, acc:Symbol[]): void {
+    for (const s of syms){
+      acc.push(s);
+      if (s.children.length && depth < symbolDepth) walkSymbols(fId, s.children, depth+1, acc);
+    }
+  }
+  for (const f of graph.files){
+    out.push(`subgraph cluster_file_${f.id} {`);
+    out.push(`label="${escapeLabel(f.path.split(/[\\/]/).pop()||'')}";`);
+    out.push('style=rounded;');
+    out.push(`${fileHubId(f.id)} [id="${fileHubId(f.id)}" label=<${escapeHtml(f.path.split(/[\\/]/).pop()||'')} > shape=plaintext class="fileHub" ];`);
+    if (symbolDepth>0){
+      const collected:Symbol[] = [];
+      walkSymbols(f.id, f.symbols, 1, collected);
+      for (const s of collected){
+        const nodeId = symNodeId(f.id, s);
+        const text = escapeHtml(s.name);
+        const cls = symbolKindClass(s.kind);
+        out.push(`${nodeId} [id="${nodeId}" label=<${text}> shape=plaintext class="cell ${cls}" ];`);
+      }
+    }
+    out.push('}');
+  }
+  // Emit edges: map relations to hub or symbol nodes
+  for (const r of graph.relations){
+    const sameFile = r.from.fileId === r.to.fileId;
+    const fromSym = graph.files.find(f=> f.id===r.from.fileId)?.symbols && findSymbolByPos(graph, r.from.fileId, r.from.line, r.from.character);
+    const toSym   = graph.files.find(f=> f.id===r.to.fileId)?.symbols && findSymbolByPos(graph, r.to.fileId, r.to.line, r.to.character);
+    const fromId = fromSym ? symNodeId(r.from.fileId, fromSym) : fileHubId(r.from.fileId);
+    const toId   = toSym   ? symNodeId(r.to.fileId, toSym)     : fileHubId(r.to.fileId);
+    if (fromId === toId) continue; // ignore degenerate
+    const cls = (r as any).kind===RelationKind.Impl ? 'impl' : ((r as any).provenance && (r as any).provenance.startsWith('static-py') ? 'static': undefined);
+    const id = `${fromId}-${toId}`;
+    out.push(`${fromId} -> ${toId} [id="${id}"${cls?` class="${cls}"`:''} label=" "];`);
+    // If same-file and hubs involved only (e.g., import self), skip (rare)
+  }
+  out.push('}');
+  const dot = out.join('\n');
+  if ((process.env.CRV_DEBUG||'').includes('dot')) console.error('[sym] split DOT sample', dot.slice(0,1200));
+  return dot;
+}
+
+function symbolGraphToDotCluster(graph:Graph, symbolDepth:number): string {
+  const cfg = getLayoutConfig();
+  const out:string[] = [];
+  out.push('digraph G {');
+  out.push(`rankdir=${cfg.rankdir||'LR'};`);
+  out.push('ranksep=2.0;');
+  out.push('nodesep=0.4;');
+  out.push('fontsize=16; fontname="Arial";');
+  out.push('node [fontsize=16 fontname="Arial" shape=plaintext style=filled];');
+  out.push('edge [arrowsize=1.2 label=" "];');
+  const headerId = (fId:number)=> `f${fId}_hdr`;
+  const symNodeId = (fId:number, s:Symbol)=> `f${fId}_l${s.range.start.line}c${s.range.start.character}`;
+  function gather(f:File): Symbol[]{
+    const acc:Symbol[]=[]; const stack=[...f.symbols];
+    while(stack.length){ const s=stack.shift()!; acc.push(s); if(s.children.length && acc.length<symbolDepth*500) stack.unshift(...s.children); }
+    return acc;
+  }
+  for (const f of graph.files){
+    out.push(`subgraph cluster_file_${f.id} {`);
+    out.push('style=rounded;');
+    out.push(`label="${escapeLabel(f.path.split(/[\\/]/).pop()||'')}";`);
+    out.push(`${headerId(f.id)} [id="${headerId(f.id)}" label=<${escapeHtml(f.path.split(/[\\/]/).pop()||'')} > shape=plaintext class="fileHub" ];`);
+    if (symbolDepth>0){
+      const list = gather(f).filter(()=> true);
+      // vertical order: keep original order by line number
+      list.sort((a,b)=> a.range.start.line - b.range.start.line);
+      let prev:string|undefined;
+      for (const s of list){
+        const id = symNodeId(f.id,s);
+        const cls = symbolKindClass(s.kind);
+        const label = `<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4"><TR><TD>${escapeHtml(s.name)}</TD></TR></TABLE>`;
+        out.push(`${id} [id="${id}" label=<${label}> shape=plaintext class="cell ${cls}" ];`);
+        // Removed invisible ordering edge to avoid suppressing real call edges between same nodes
+        prev = id;
+      }
+    }
+    out.push('}');
+  }
+  // Edges
+  for (const r of graph.relations){
+    const fromSym = findSymbolByPos(graph, r.from.fileId, r.from.line, r.from.character);
+    const toSym = findSymbolByPos(graph, r.to.fileId, r.to.line, r.to.character);
+    const fromId = fromSym? symNodeId(r.from.fileId, fromSym) : headerId(r.from.fileId);
+    const toId = toSym? symNodeId(r.to.fileId, toSym) : headerId(r.to.fileId);
+    if (fromId===toId) continue;
+    const cls = (r as any).kind===RelationKind.Impl ? 'impl' : ((r as any).provenance && (r as any).provenance.startsWith('static-py') ? 'static': undefined);
+    out.push(`${fromId} -> ${toId} [id="${fromId}-${toId}"${cls?` class="${cls}"`:''}];`);
+  }
+  out.push('}');
+  return out.join('\n');
+}
+
+function escapeLabel(s:string){ return s.replace(/"/g,'\\"'); }
+function symbolKindClass(k:number){ switch(k){ case 12:return 'function'; case 6:return 'method'; case 9:return 'constructor'; case 11:return 'interface'; case 5:return 'class'; case 10:return 'enum'; case 8:return 'field'; case 7:return 'property'; default:return ''; } }
+function findSymbolByPos(graph:Graph, fileId:number, line:number, ch:number): Symbol|undefined {
+  const f = graph.files.find(ff=> ff.id===fileId); if(!f) return undefined;
+  // Collect (cached) flattened symbol list for the file
+  let flat: Symbol[] | undefined = (f as any)._flatSyms;
+  if (!flat) {
+    flat = [];
+    const stack:Symbol[] = [...f.symbols];
+    while(stack.length){ const s = stack.pop()!; flat.push(s); if (s.children.length) stack.push(...s.children); }
+    (f as any)._flatSyms = flat;
+  }
+  // 1. Exact line + character match
+  let exact = flat.find(s=> s.range.start.line===line && s.range.start.character===ch);
+  if (exact) return exact;
+  // 2. Any symbol starting at same line (ignore character differences caused by indentation / LSP variance)
+  const sameLine = flat.filter(s=> s.range.start.line===line);
+  if (sameLine.length === 1) return sameLine[0];
+  if (sameLine.length > 1) {
+    // Prefer one with closest character distance
+    sameLine.sort((a,b)=> Math.abs(a.range.start.character-ch) - Math.abs(b.range.start.character-ch));
+    return sameLine[0];
+  }
+  // 3. Enclosing range (selectionRange may point inside a function body for some servers)
+  const enclosing = flat.filter(s=> s.range.start.line <= line && s.range.end.line >= line);
+  if (enclosing.length === 1) return enclosing[0];
+  if (enclosing.length > 1) {
+    // Pick the smallest span (most specific)
+    enclosing.sort((a,b)=> (a.range.end.line - a.range.start.line) - (b.range.end.line - b.range.start.line));
+    return enclosing[0];
+  }
+  return undefined;
 }
 
 // Types for conversion

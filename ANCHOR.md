@@ -108,6 +108,7 @@ Assumption that file-level only depth control sufficient → symbol-level depth 
 2025-09-03 — Cross-root resolver extended to partial-ref edges.
 2025-09-03 — Cleanup script added.
 2025-09-03 — Phase L1 root grid: --root-grid flag parsed + basic horizontal placement (rank=same representatives) implemented.
+2025-09-03 — DECISION: Introduce real 'split' symbol layout = per-symbol nodes inside per-file clusters (with file hub) to eliminate self-loop vertical spikes from table row ports. Table layout retained; split gated by --symbol-layout split. No invisible anchor hack; preserves one edge per relation; depth gating hides deeper symbols instead of collapsing edges.
 
 8. Open Questions
 
@@ -123,6 +124,7 @@ Milestone 3: Confidence & provenance tagging (Phase C) (ETA 2025-09-11) — enri
 Milestone 4: Incremental cache (Phase D) (ETA 2025-09-13) — persist cross-root resolution.
 Milestone 5: Unresolved diagnostics overlay (Phase E) (ETA 2025-09-15) — dashed edges / counts.
 Milestone 6: Performance tuning & worker scaling benchmarks (Phase F) (ETA 2025-09-18).
+Milestone 7: Symbol split layout polish (Phase G) (ETA 2025-09-05) — finalize styling parity with table cells, add optional depth summary node (“+”) and edge aggregation thresholds.
 
 Layout / Root Placement Roadmap:
 * New option --root-grid CxR to arrange per-root clusters in a grid (initial focus: horizontal placement e.g. 2x1 to place two roots side-by-side).

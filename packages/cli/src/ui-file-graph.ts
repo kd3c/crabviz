@@ -4,7 +4,7 @@ import { instance as vizInstance } from '@viz-js/viz';
 import { splitDirectory, commonAncestorPath, escapeHtml } from './ui-utils.js';
 
 // Layout configuration (shared with symbol graph rendering)
-export interface LayoutConfig { filesPerRow?: number; rankdir?: 'LR' | 'TB'; rootGrid?: { cols:number; rows:number; raw:string }; rootPaths?: string[]; symbolLayout?: 'table' | 'split'; }
+export interface LayoutConfig { filesPerRow?: number; rankdir?: 'LR' | 'TB'; rootGrid?: { cols:number; rows:number; raw:string }; rootPaths?: string[]; symbolLayout?: 'table' | 'split' | 'cluster'; }
 let layoutConfig: LayoutConfig = { filesPerRow: 0, rankdir: 'LR', rootGrid: undefined, rootPaths: [], symbolLayout: 'split' };
 export function setLayoutConfig(cfg: LayoutConfig){ layoutConfig = { ...layoutConfig, ...cfg }; }
 export function getLayoutConfig(): LayoutConfig { return layoutConfig; }

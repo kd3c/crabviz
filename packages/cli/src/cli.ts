@@ -56,8 +56,8 @@ async function main() {
   .option("rankdir", { type: "string", choices: ["LR","TB"], describe: "Graph layout direction (LR=left-right, TB=top-bottom)", default: "LR" })
   .option("files-per-row", { type: "number", describe: "When --rankdir=TB, pack up to N file nodes per horizontal row within a folder", default: 0 })
   .option("root-grid", { type: "string", describe: "Arrange roots in a grid CxR (Phase L1: parse only, horizontal placement upcoming)", default: undefined })
-  .option("show-internal-file-calls", { type: "boolean", describe: "Show self-loop call edges within the same file (symbol-level export). Hidden by default to reduce clutter", default: false })
-  .option("symbol-layout", { type: "string", choices:["table","split"], describe: "Symbol rendering layout: table (file node with rows) or split (per-symbol nodes)", default: "split" })
+  .option("show-internal-file-calls", { type: "boolean", describe: "Show call edges within the same file (symbol-level export). For --symbol-layout table these are rendered as an in-node overlay (no giant self-loop arcs). Hidden by default to reduce clutter", default: false })
+  .option("symbol-layout", { type: "string", choices:["table","split","cluster"], describe: "Symbol rendering layout: table (single file node), split (loose symbol nodes), cluster (stacked per-symbol nodes in file cluster)", default: "split" })
   .option("python-engine", { type: "string", choices: ["auto","lsp","static"], default: "auto", describe: "Python analysis engine: static (AST) or lsp (pyright). auto selects static." })
   .option("hide-imports", { type: "boolean", default: false, describe: "Hide import edges (show only call edges)" })
   .option("dot-out", { type: "string", describe: "Also write raw DOT graph to this file (debug)" })
@@ -99,23 +99,25 @@ async function main() {
     //   rankdir=LR -> split  (better edge clarity)
     const userProvidedSymbolLayout = (process.argv.some(a=> a.startsWith('--symbol-layout')));
     const rankdirEff = (argv.rankdir==='TB'?'TB':'LR') as any;
-    let effSymbolLayout: 'table' | 'split';
+    let effSymbolLayout: 'table' | 'split' | 'cluster';
     if (userProvidedSymbolLayout) {
-      effSymbolLayout = (argv as any).symbolLayout === 'table' ? 'table' : 'split';
+      const sl = (argv as any).symbolLayout;
+      effSymbolLayout = (sl === 'table' || sl === 'cluster') ? sl : 'split';
     } else {
       effSymbolLayout = rankdirEff === 'TB' ? 'table' : 'split';
     }
+  const layoutForConfig = effSymbolLayout; // preserve cluster so symbol graph can detect it
     setLayoutConfig({
       rankdir: rankdirEff,
       filesPerRow: argv.filesPerRow && argv.filesPerRow>0 ? argv.filesPerRow : 0,
       rootGrid: rootGridCfg,
       rootPaths: roots,
-      symbolLayout: effSymbolLayout
+      symbolLayout: layoutForConfig as any
     });
     const tsPart = await scanTs(roots, tsClient);
   const pyPart = await scanPy(roots, pyClient as any, { engine: useStatic? 'static':'lsp' });
   const gd     = mergeGraphs([tsPart, pyPart]);
-  const staticPyGraph = (useStatic && pyPart.staticResult?.rawJson) ? buildStaticPyGraph(pyPart.staticResult.rawJson, pyPart.staticResult.moduleMap) : null;
+  const staticPyGraph = (useStatic && pyPart.staticResult?.rawJson) ? buildStaticPyGraph(pyPart.staticResult.rawJson, pyPart.staticResult.moduleMap, { includeInternal: argv.showInternalFileCalls }) : null;
 
     // Determine effective call depth semantics
     // Priority: explicit --call-depth > legacy --max-depth > default (1)
@@ -267,8 +269,29 @@ async function main() {
     }
   }
   // Drop same-file edges unless user explicitly wants them to reduce vertical stretching noise in TB layouts
+  let effectiveLayout = 'table';
+  try {
+    const layoutCfgMod: any = await import('./ui-file-graph.js');
+    if (layoutCfgMod && layoutCfgMod._layoutConfig && layoutCfgMod._layoutConfig.symbolLayout) {
+      effectiveLayout = layoutCfgMod._layoutConfig.symbolLayout;
+    }
+  } catch { /* ignore */ }
+  // Refresh effective layout from config (now includes 'cluster')
+  try {
+    const { getLayoutConfig } = await import('./ui-file-graph.js');
+    const cfg = getLayoutConfig();
+    effectiveLayout = (cfg.symbolLayout as any) || effectiveLayout;
+  } catch {/* ignore */}
+  let overlayInternalEdges: any[] | null = null;
+  const wantOverlay = effectiveLayout === 'table' && argv.showInternalFileCalls; // always overlay in table layout when requested
   if (!argv.showInternalFileCalls) {
+    // User did not request internal edges: drop them to reduce clutter
     symGraph.relations = symGraph.relations.filter(r=> r.from.fileId !== r.to.fileId);
+  } else if (wantOverlay) {
+    // Extract same-file edges so they are NOT rendered as Graphviz self-loops; keep for later overlay injection.
+    overlayInternalEdges = symGraph.relations.filter(r=> r.from.fileId === r.to.fileId);
+    symGraph.relations = symGraph.relations.filter(r=> r.from.fileId !== r.to.fileId);
+    if (!argv.quiet) console.error('[crabviz] overlaying internal same-file edges inside table nodes (', overlayInternalEdges.length, 'edges )');
   }
   const rootDir = fileIds.length ? resolve(fileIds[0], '..') : process.cwd();
   // If callDepth=0 force symbol depth to 0 for pure file-level view (unless user explicitly set a positive symbolDepth)
@@ -289,7 +312,44 @@ async function main() {
         const css = readAsset('webview-ui/src/assets/out/index.css', true);
         const js  = readAsset('webview-ui/src/assets/out/index.js', true);
         const runtimeInit = js.trim().length ? `${js}\ntry{const svgEl=document.querySelector('.callgraph');if(svgEl&& typeof CallGraph!=='undefined'){const g=new CallGraph(svgEl,null);g.setUpPanZoom();}}catch{}` : '';
-        const html = `<!DOCTYPE html><html><head><meta charset=utf-8><title>${he.encode('Crabviz Detailed')}</title><style>${theme}\n${css}</style></head><body>${svg.outerHTML}${ runtimeInit? `<script type=module>${runtimeInit}</script>`:''}</body></html>`;
+        let overlayScript = '';
+        if (overlayInternalEdges && overlayInternalEdges.length) {
+          const payload = JSON.stringify(overlayInternalEdges.map(e=> ({ f: e.from.fileId, fl:e.from.line, fc:e.from.character, t: e.to.fileId, tl:e.to.line, tc:e.to.character, k: e.kind })));
+          // Build script without nested template literal interpolation that confuses TS parser
+          let script = '';
+          script += `<script type=module>\n`;
+          script += `const data=${payload};\n`;
+          script += `function draw(){\n`;
+          script += ` const svg=document.querySelector('svg.callgraph'); if(!svg) return; const NS='http://www.w3.org/2000/svg';\n`;
+          script += ` let grp=svg.querySelector('#internal-overlay'); if(!grp){ grp=document.createElementNS(NS,'g'); grp.id='internal-overlay'; grp.setAttribute('data-layer','internal'); grp.style.pointerEvents='none'; const g0=svg.getElementById('graph0'); if(g0){ g0.appendChild(grp); } }\n`;
+          script += ` // ensure arrow marker\n`;
+          script += ` let defs=svg.querySelector('defs'); if(!defs){ defs=document.createElementNS(NS,'defs'); svg.appendChild(defs);} if(!svg.querySelector('#internalArrow')){ const mk=document.createElementNS(NS,'marker'); mk.id='internalArrow'; mk.setAttribute('orient','auto'); mk.setAttribute('markerWidth','10'); mk.setAttribute('markerHeight','10'); mk.setAttribute('refX','8'); mk.setAttribute('refY','3'); const mp=document.createElementNS(NS,'path'); mp.setAttribute('d','M0,0 L0,6 L9,3 z'); mp.setAttribute('fill','#698b69'); mk.appendChild(mp); defs.appendChild(mk);}\n`;
+          script += ` data.forEach(ed=>{\n`;
+          script += `  const from=document.getElementById(ed.f+':'+ed.fl+'_'+ed.fc);\n`;
+          script += `  const to=document.getElementById(ed.t+':'+ed.tl+'_'+ed.tc);\n`;
+          script += `  if(!from||!to) return;\n`;
+          script += `  const fb=(from).getBBox(); const tb=(to).getBBox();\n`;
+          script += `  const x1=fb.x+fb.width; const y1=fb.y+fb.height/2; const x2=tb.x+tb.width; const y2=tb.y+tb.height/2;\n`;
+          script += `  const fileNode = (from as any).closest('.node'); const nb = fileNode? fileNode.getBBox(): null;\n`;
+          script += `  const downward = y2>=y1;\n`;
+          script += `  let corridor; let leftMode=false;\n`;
+          script += `  if(nb){ if(downward){ corridor = nb.x + nb.width - 6; } else { leftMode=true; corridor = nb.x + 6; } } else { corridor = Math.max(x1,x2)+8; }\n`;
+          script += `  const path=document.createElementNS(NS,'path');\n`;
+          script += `  let d;\n`;
+          script += `  if(Math.abs(y2-y1)<14){ // short hop: small cubic to visually connect rows
+            const cx = leftMode? corridor : corridor; d='M'+x1+','+y1+' C '+cx+','+y1+' '+cx+','+y2+' '+x2+','+y2; }
+          else if(leftMode){ d='M'+x1+','+y1+' L '+(nb? nb.x+nb.width-4 : x1+4)+','+y1+' L '+corridor+','+y1+' L '+corridor+','+y2+' L '+(nb? nb.x+nb.width-4 : x2-4)+','+y2+' L '+x2+','+y2; }
+          else { d='M'+x1+','+y1+' L '+corridor+','+y1+' L '+corridor+','+y2+' L '+x2+','+y2; }\n`;
+          script += `  path.setAttribute('d', d);\n`;
+          script += `  path.setAttribute('stroke','#698b69'); path.setAttribute('fill','none'); path.setAttribute('stroke-width','2'); path.setAttribute('marker-end','url(#internalArrow)'); path.setAttribute('data-internal','1');\n`;
+          script += `  path.classList.add('edge','internal-overlay','internal-call'); grp.appendChild(path);\n`;
+          script += ` });\n`;
+          script += `}\n`;
+          script += `if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', draw); else draw();\n`;
+          script += `</script>`;
+          overlayScript = script;
+        }
+        const html = `<!DOCTYPE html><html><head><meta charset=utf-8><title>${he.encode('Crabviz Detailed')}</title><style>${theme}\n${css}</style></head><body>${svg.outerHTML}${ runtimeInit? `<script type=module>${runtimeInit}</script>`:''}${overlayScript}</body></html>`;
         await import('node:fs').then(m=> { m.writeFileSync(resolve(argv.out), html, 'utf8'); });
   if (!argv.quiet) console.log(`Wrote ${resolve(argv.out)} (export/html ui detailed)`); else process.stdout.write(resolve(argv.out));
         return;

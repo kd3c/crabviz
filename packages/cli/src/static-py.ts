@@ -23,7 +23,7 @@ export function loadStaticPy(root:string): StaticPyJson | null {
   return null; // actual invocation handled in buildStaticPyGraph via spawn for freshness
 }
 
-export function buildStaticPyGraph(jsonText:string, moduleMap?: Record<string,string>): Graph {
+export function buildStaticPyGraph(jsonText:string, moduleMap?: Record<string,string>, opts?: { includeInternal?: boolean }): Graph {
   const parsed: StaticPyJson = JSON.parse(jsonText);
   const filesByPath = new Map<string, File>();
   const symByQual = new Map<string, { file: File; symbol: Symbol }>();
@@ -197,11 +197,13 @@ export function buildStaticPyGraph(jsonText:string, moduleMap?: Record<string,st
         }
       }
     }
-    if (!to) continue; // unresolved after attempts
-    const key = `${from.file.id}:${from.symbol.range.start.line}->${to.file.id}:${to.symbol.range.start.line}`;
-    if (relSeen.has(key)) continue;
-    relSeen.add(key);
-    relations.push({ from: { fileId: from.file.id, line: from.symbol.range.start.line, character: from.symbol.range.start.character }, to:{ fileId: to.file.id, line: to.symbol.range.start.line, character: to.symbol.range.start.character }, kind: RelationKind.Call, provenance: e.provenance || 'static-py' });
+  if (!to) continue; // unresolved after attempts
+  // Skip same-file edges unless explicitly requested
+  if (!opts?.includeInternal && from.file.id === to.file.id) continue;
+  const key = `${from.file.id}:${from.symbol.range.start.line}->${to.file.id}:${to.symbol.range.start.line}`;
+  if (relSeen.has(key)) continue;
+  relSeen.add(key);
+  relations.push({ from: { fileId: from.file.id, line: from.symbol.range.start.line, character: from.symbol.range.start.character }, to:{ fileId: to.file.id, line: to.symbol.range.start.line, character: to.symbol.range.start.character }, kind: RelationKind.Call, provenance: e.provenance || 'static-py' });
   }
   const metrics = {
     cross: {
