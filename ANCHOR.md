@@ -1,6 +1,6 @@
 🧭 Project Anchor
 
-Last updated: 2025-09-02 | Anchor ID: ANCHOR-1
+Last updated: 2025-09-03 | Anchor ID: ANCHOR-1
 
 1. Project Snapshot
 
@@ -12,9 +12,11 @@ Provide fast, language-aware, multi-root call & dependency visualization (import
 
 Current scope:
 * TS/JS + Python file-level import graph.
-* Python static function-level call extraction (intra-module simple & self calls) collapsed to file-level or shown symbol-level in UI export.
-* Multi-root static scan merged (per-root analyzer runs combined).
-* UI export (file & symbol) with depth control, import edge hiding, DOT export.
+* Python static function-level call extraction (intra-module simple & self calls) plus provisional cross-root edges (alias.func, from-import symbols) & higher-order partial() references.
+* Module sentinel `__module__` + import edges for dependency visibility.
+* Multi-root static scan merged (per-root analyzer runs combined) with prefix/suffix cross-root resolution.
+* UI exports: file-level (ui style) & symbol-level (Graphviz) with depth control, import edge hiding, DOT export.
+* Cleanup script (`scripts/cleanup_generated.py`) for transient artifacts.
 
 Out of scope:
 * Full Python dynamic / reflection handling.
@@ -26,8 +28,8 @@ Out of scope:
 Core modules:
 cli.ts: Orchestrates graph build, flags, rendering (status: active, evolving).
 lang-py.ts: Python import scanning + static analyzer integration & multi-root merge (status: stage 2 → transitioning to stage 3 planning).
-scripts/py_callscan.py: Stage 1 static analyzer (intra-module functions & calls) (status: stable baseline).
-static-py.ts: Reconstruct symbol graph from analyzer JSON (status: added dedupe; will expand for provenance & cross-root edges).
+scripts/py_callscan.py: Analyzer now emits: functions, intra-module calls, import tables, module sentinel + import edges, provisional alias/from-import/partial edges, diagnostics. (status: active Phase A)
+static-py.ts: Rebuilds symbol graph + resolves provisional edges cross-root (prefix/suffix heuristics; partial-ref included). (status: evolving)
 ui-symbol-graph.ts: LSP-based symbol graph + call hierarchy (TS/Py via LSP when available) (status: operative; limited Python due to LSP gaps).
 ui-file-graph.ts & export-html.ts: Visualization (status: stable; candidate for legend & provenance overlays).
 graph.ts: DOT emitter & styling (status: stable; will gain provenance styling classes).
@@ -51,7 +53,7 @@ Formatting:
 * Python: Minimal; keep analyzer readable (future: black optional).
 
 Logging:
-* Feature flags via env: CRV_DEBUG=py|sym, etc.
+* Feature flags via env: CRV_DEBUG=pyscan|cross|sym (pyscan stats, cross resolution samples).
 * Console stderr for progress; quiet flag suppresses.
 
 Testing:
@@ -78,13 +80,15 @@ Cost	0.02	Avoid bloat
 6. Assumption Ledger
 
 VERIFIED:
-Static analyzer Stage 1 resolves only intra-module simple & self calls → confirmed via py_callscan.py code.
-Multi-root call edges previously missing because analyzer ran only once → confirmed by change & increased edge count.
-LSP Python call hierarchy insufficient for deep coverage → observed earlier (few or no edges from pyright).
+Analyzer: intra-module simple & self calls + alias.func + from-import + partial() provisional edges.
+Module sentinel + import edges emitted.
+Multi-root merging + cross-root heuristics functioning (prefix/suffix).
+LSP Python call hierarchy remains sparse vs analyzer.
 
 PENDING:
-Cross-root calls largely appear via imported alias/attribute patterns; we assume moderate alias variety (needs confirmation with larger samples).
-Users need provenance filtering (import vs static-py vs lsp) → not yet confirmed by users.
+Deeper attribute chains alias.sub.func; re-export/star imports.
+Provenance filtering & legend (import vs static-cross vs partial-ref vs lsp).
+Confidence scoring & UI toggles.
 
 REMOVED:
 Assumption that single-root scanning acceptable → superseded by multi-root requirement.
@@ -98,6 +102,12 @@ Assumption that file-level only depth control sufficient → symbol-level depth 
 2025-09-02 — Multi-root static analysis merging implemented.
 2025-09-02 — Symbol-level relation dedup for static analyzer output added.
 2025-09-02 — Depth control applied to simplified UI export.
+2025-09-03 — Import edges + module sentinel emission added.
+2025-09-03 — Provisional alias/from-import edges & relative import normalization.
+2025-09-03 — partial() higher-order reference detection.
+2025-09-03 — Cross-root resolver extended to partial-ref edges.
+2025-09-03 — Cleanup script added.
+2025-09-03 — Phase L1 root grid: --root-grid flag parsed + basic horizontal placement (rank=same representatives) implemented.
 
 8. Open Questions
 
@@ -107,12 +117,20 @@ Should Rust core be leveraged for performance-critical graph operations now or l
 
 9. Next Milestones
 
-Milestone 1: Cross-root import-aware resolution (Phase A) (ETA 2025-09-05, owner: CLI) — map imports & from-import names to modules; resolve calls to imported names & attribute calls on imported module aliases (simple attr).
-Milestone 2: Attribute chain & alias propagation (Phase B) (ETA 2025-09-09) — handle module.sub.func, re-exported names, relative imports.
-Milestone 3: Confidence & provenance tagging (Phase C) (ETA 2025-09-11) — edge provenance (static-intra, static-cross, lsp, import) + optional legend & filters.
-Milestone 4: Incremental cache (Phase D) (ETA 2025-09-13) — per-file hash cache storing resolved cross-root edges & invalidation.
-Milestone 5: Unresolved diagnostics overlay (Phase E) (ETA 2025-09-15) — dashed edges or sidebar counts, toggleable.
-Milestone 6: Performance tuning & worker scaling benchmarks (Phase F) (ETA 2025-09-18) — auto worker count, profiling large roots.
+Milestone 1: Cross-root import-aware resolution (Phase A) — IN PROGRESS (basic alias/from-import/partial done; deeper attr pending).
+Milestone 2: Attribute chain & alias propagation (Phase B) (ETA 2025-09-09) — alias.sub.func, re-export/star, improved relative.
+Milestone 3: Confidence & provenance tagging (Phase C) (ETA 2025-09-11) — enrich edge provenance + legend + filters.
+Milestone 4: Incremental cache (Phase D) (ETA 2025-09-13) — persist cross-root resolution.
+Milestone 5: Unresolved diagnostics overlay (Phase E) (ETA 2025-09-15) — dashed edges / counts.
+Milestone 6: Performance tuning & worker scaling benchmarks (Phase F) (ETA 2025-09-18).
+
+Layout / Root Placement Roadmap:
+* New option --root-grid CxR to arrange per-root clusters in a grid (initial focus: horizontal placement e.g. 2x1 to place two roots side-by-side).
+* Future flags (not yet implemented): --root-gap-x / --root-gap-y (spacing), --root-order (name|size|input), --root-color-scheme, --root-legend.
+* Phase L1 (current): --root-grid basic parsing + horizontal (single-row) arrangement. (IN PROGRESS — initial representative rank alignment implemented)
+* Phase L2: full CxR grid with empty-cell alignment & optional packing.
+* Phase L3: per-root styling & legend.
+* Phase L4: layout persistence / stable ordering heuristics.
 
 10. Current Mode & Parameters
 
@@ -124,14 +142,12 @@ Debug: false
 
 Cross-Root Call Resolution Plan (Detailed):
 
-Phase A (Immediate):
-1. Extend analyzer to emit import table per module: aliases (import x as a), from-import symbols, relative imports resolved to module path.
-2. Build global module->file map (already partially present) across all roots.
-3. Build index: symbol simple name -> list of qualified functions (limit by exported module if from-import used).
-4. During call collection, for each unresolved simple name in a module:
-   * If name in from-import set: direct map to imported module symbol (module.name) → add cross-file edge.
-   * If call is Attribute (alias.func()) where alias is imported module alias: map to module.func if present.
-5. Tag new edges provenance=static-cross; record resolution mode for confidence scoring.
+Phase A (Immediate – partial complete):
+1. Import tables + relative normalization. (DONE)
+2. Module sentinel + import edges. (DONE)
+3. Provisional alias/from-import/partial edges. (DONE)
+4. Cross-root prefix/suffix resolution including partial-ref. (DONE)
+5. Remaining: deeper attribute chains, star import heuristics. (PENDING)
 
 Phase B:
 1. Handle nested attributes: alias.sub.func (resolve alias.sub as submodule path if directory present).
@@ -160,9 +176,10 @@ Risk Mitigation:
 * Provenance & confidence allow UI filtering if noise arises.
 
 Done So Far (Recap):
-* Stage 1 analyzer, import scanning, static intra-module calls.
+* Analyzer upgraded: import metadata, module sentinel edges, relative normalization, alias/from-import/partial provisional edges.
+* Cross-root resolution (prefix/suffix) incl. partial-ref.
 * File & symbol UI exports, depth control, multi-root merging, dedup, DOT export.
-* Benchmark harness & multi-root improvements.
+* Cleanup script + benchmark harness.
 
 Pending Implementation Start: Phase A.
 

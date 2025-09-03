@@ -30,6 +30,9 @@ type Args = {
   symbolDepth?: number;           // limit symbol nesting depth in UI export
   rankdir?: string;               // layout direction (LR or TB)
   filesPerRow?: number;           // when rankdir=TB, group N files per rank row inside folder clusters
+  rootGrid?: string;              // layout grid specification CxR (Phase L1 parsing)
+  showInternalFileCalls?: boolean; // keep self-loop file-level call edges at symbol depth
+  symbolLayout?: string;          // 'table' | 'split' (split = per-symbol nodes)
   pythonEngine?: string;          // 'auto' | 'lsp' | 'static'
   hideImports?: boolean;          // hide import edges
   dotOut?: string;                // write raw DOT
@@ -52,6 +55,9 @@ async function main() {
   .option("symbol-depth", { type: "number", describe: "Limit symbol nesting depth for --ui-file export. 0 = files only, 1 = files & functions, 2 = files, functions & arguments. (default: 1)", default: 1 })
   .option("rankdir", { type: "string", choices: ["LR","TB"], describe: "Graph layout direction (LR=left-right, TB=top-bottom)", default: "LR" })
   .option("files-per-row", { type: "number", describe: "When --rankdir=TB, pack up to N file nodes per horizontal row within a folder", default: 0 })
+  .option("root-grid", { type: "string", describe: "Arrange roots in a grid CxR (Phase L1: parse only, horizontal placement upcoming)", default: undefined })
+  .option("show-internal-file-calls", { type: "boolean", describe: "Show self-loop call edges within the same file (symbol-level export). Hidden by default to reduce clutter", default: false })
+  .option("symbol-layout", { type: "string", choices:["table","split"], describe: "Symbol rendering layout: table (file node with rows) or split (per-symbol nodes)", default: "split" })
   .option("python-engine", { type: "string", choices: ["auto","lsp","static"], default: "auto", describe: "Python analysis engine: static (AST) or lsp (pyright). auto selects static." })
   .option("hide-imports", { type: "boolean", default: false, describe: "Hide import edges (show only call edges)" })
   .option("dot-out", { type: "string", describe: "Also write raw DOT graph to this file (debug)" })
@@ -78,8 +84,34 @@ async function main() {
   const pyClient = useStatic ? null : await launchPyright(lspRoot);
 
   try {
-    // Apply layout config early
-    setLayoutConfig({ rankdir: (argv.rankdir==='TB'?'TB':'LR') as any, filesPerRow: argv.filesPerRow && argv.filesPerRow>0 ? argv.filesPerRow : 0 });
+    // Apply layout config early (Phase L1: parse --root-grid CxR and pass through)
+    let rootGridCfg: undefined | { cols:number; rows:number; raw:string } = undefined;
+    if (argv.rootGrid) {
+      const m = String(argv.rootGrid).trim().toLowerCase().match(/^(\d+)x(\d+)$/);
+      if (m) {
+        const cols = parseInt(m[1],10); const rows = parseInt(m[2],10);
+        if (cols>0 && rows>0) rootGridCfg = { cols, rows, raw: argv.rootGrid };
+      }
+    }
+    // Adaptive symbol layout default:
+    // If user did NOT pass --symbol-layout explicitly, choose:
+    //   rankdir=TB -> table (better stacking)
+    //   rankdir=LR -> split  (better edge clarity)
+    const userProvidedSymbolLayout = (process.argv.some(a=> a.startsWith('--symbol-layout')));
+    const rankdirEff = (argv.rankdir==='TB'?'TB':'LR') as any;
+    let effSymbolLayout: 'table' | 'split';
+    if (userProvidedSymbolLayout) {
+      effSymbolLayout = (argv as any).symbolLayout === 'table' ? 'table' : 'split';
+    } else {
+      effSymbolLayout = rankdirEff === 'TB' ? 'table' : 'split';
+    }
+    setLayoutConfig({
+      rankdir: rankdirEff,
+      filesPerRow: argv.filesPerRow && argv.filesPerRow>0 ? argv.filesPerRow : 0,
+      rootGrid: rootGridCfg,
+      rootPaths: roots,
+      symbolLayout: effSymbolLayout
+    });
     const tsPart = await scanTs(roots, tsClient);
   const pyPart = await scanPy(roots, pyClient as any, { engine: useStatic? 'static':'lsp' });
   const gd     = mergeGraphs([tsPart, pyPart]);
@@ -233,6 +265,10 @@ async function main() {
         kind: 0 // RelationKind.Call equivalent
       } as any);
     }
+  }
+  // Drop same-file edges unless user explicitly wants them to reduce vertical stretching noise in TB layouts
+  if (!argv.showInternalFileCalls) {
+    symGraph.relations = symGraph.relations.filter(r=> r.from.fileId !== r.to.fileId);
   }
   const rootDir = fileIds.length ? resolve(fileIds[0], '..') : process.cwd();
   // If callDepth=0 force symbol depth to 0 for pure file-level view (unless user explicitly set a positive symbolDepth)
