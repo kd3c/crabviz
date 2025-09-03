@@ -39,4 +39,5 @@ export interface Relation {
 export interface Graph {
   files: File[];
   relations: Relation[];
+  metrics?: Record<string, unknown>; // optional diagnostic / provenance metrics
 }

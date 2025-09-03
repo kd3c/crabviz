@@ -48,6 +48,7 @@ export function buildStaticPyGraph(jsonText:string, moduleMap?: Record<string,st
   const relSeen = new Set<string>();
   let crossResolved = 0;
   let crossTried = 0; let crossAmbiguous = 0; let crossNoModule = 0; const crossSamples: any[] = [];
+  let crossPrefixTried = 0; let crossSuffixTried = 0; let crossPrefixResolved = 0; let crossSuffixResolved = 0;
   // Pre-compute a set of project module roots to help skip obvious stdlib/external modules.
   const projectModules = new Set<string>(byModuleName.keys());
   const stdlibLikePrefixes = ['os','sys','json','re','typing','pathlib','collections','itertools','functools','asyncio','logging','datetime','http','urllib','inspect','subprocess','concurrent','multiprocessing','email','xml','xmlrpc','argparse','dataclasses','enum'];
@@ -66,8 +67,42 @@ export function buildStaticPyGraph(jsonText:string, moduleMap?: Record<string,st
     let to = symByQual.get(e.callee);
     if (!from) continue; // caller must exist inside project
     if (!to) {
-      // Only attempt cross-root resolution for provisional edges
-      if (e.provenance && e.provenance.startsWith('provisional')) {
+      // Import module-level dependency sentinel: caller module.__module__ -> target module.__module__
+      if (e.provenance === 'import' && e.callee.endsWith('.__module__')) {
+        const targetMod = e.callee.slice(0, -'.__module__'.length);
+        if (byModuleName.has(targetMod)) {
+          // Find any symbol in that module to anchor (choose first)
+            const modMap = byModuleName.get(targetMod)!;
+            // pick first symbol array first element
+            for (const arr of modMap.values()) {
+              if (arr.length) {
+                const sym = arr[0];
+                const file = Array.from(filesByPath.values()).find(f=> f.symbols.includes(sym));
+                if (file) to = { file, symbol: sym } as any;
+                break;
+              }
+            }
+        } else {
+          // Try suffix trimming of module path for multi-root mismatches
+          const parts = targetMod.split('.');
+          for (let i = 1; i < parts.length && !to; i++) {
+            const suffix = parts.slice(i).join('.');
+            if (byModuleName.has(suffix)) {
+              const modMap = byModuleName.get(suffix)!;
+              for (const arr of modMap.values()) {
+                if (arr.length) {
+                  const sym = arr[0];
+                  const file = Array.from(filesByPath.values()).find(f=> f.symbols.includes(sym));
+                  if (file) to = { file, symbol: sym } as any;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+  // Attempt cross-root resolution for provisional and partial-ref (higher-order) edges
+  if (!to && e.provenance && (e.provenance.startsWith('provisional') || e.provenance.startsWith('partial-ref'))) {
         const rawParts = e.callee.split('.');
         if (rawParts.length >= 2) {
           const funcName = rawParts[rawParts.length - 1];
@@ -82,7 +117,7 @@ export function buildStaticPyGraph(jsonText:string, moduleMap?: Record<string,st
               continue;
             }
             const modMapEntry = byModuleName.get(modName);
-            crossTried++;
+            crossTried++; crossPrefixTried++;
             if (modMapEntry) {
               const cand = modMapEntry.get(funcName);
               if (cand && cand.length === 1) {
@@ -90,6 +125,7 @@ export function buildStaticPyGraph(jsonText:string, moduleMap?: Record<string,st
                 if (file) {
                   to = { file, symbol: cand[0] } as any;
                   crossResolved++;
+                  crossPrefixResolved++;
                   if (crossSamples.length < 25 && (process.env.CRV_DEBUG||'').includes('cross')) {
                     crossSamples.push({ kind:'resolved', edge:e, module:modName, func:funcName, prefixAttempts: rawParts.length-1-cut });
                   }
@@ -97,6 +133,10 @@ export function buildStaticPyGraph(jsonText:string, moduleMap?: Record<string,st
                   if (!e.provenance || e.provenance.startsWith('provisional')) {
                     e.provenance = 'static-cross';
                   }
+                // Import edge sentinel resolution (module-level dependency)
+                else if (e.provenance === 'import' && e.callee.endsWith('.__module__')) {
+                  const base = e.callee.slice(0, -'__.__module__'.length + 1 - 1); // incorrect, adjust below
+                }
                 }
               } else if (cand && cand.length > 1) {
                 crossAmbiguous++;
@@ -130,13 +170,14 @@ export function buildStaticPyGraph(jsonText:string, moduleMap?: Record<string,st
               if (looksExternal(modName)) continue;
               const modMapEntry = byModuleName.get(modName);
               if (!modMapEntry) continue; // don't count as missing; it's an exploratory suffix
-              crossTried++;
+              crossTried++; crossSuffixTried++;
               const cand = modMapEntry.get(funcName);
               if (cand && cand.length === 1) {
                 const file = Array.from(filesByPath.values()).find(f=> f.symbols.includes(cand[0]));
                 if (file) {
                   to = { file, symbol: cand[0] } as any;
                   crossResolved++;
+          crossSuffixResolved++;
                   if (crossSamples.length < 25 && (process.env.CRV_DEBUG||'').includes('cross')) {
                     crossSamples.push({ kind:'resolved-suffix', edge:e, module:modName, func:funcName, droppedLeading:start });
                   }
@@ -162,11 +203,21 @@ export function buildStaticPyGraph(jsonText:string, moduleMap?: Record<string,st
     relSeen.add(key);
     relations.push({ from: { fileId: from.file.id, line: from.symbol.range.start.line, character: from.symbol.range.start.character }, to:{ fileId: to.file.id, line: to.symbol.range.start.line, character: to.symbol.range.start.character }, kind: RelationKind.Call, provenance: e.provenance || 'static-py' });
   }
+  const metrics = {
+    cross: {
+      tried: crossTried,
+      resolved: crossResolved,
+      ambiguous: crossAmbiguous,
+      noModule: crossNoModule,
+      prefix: { tried: crossPrefixTried, resolved: crossPrefixResolved },
+      suffix: { tried: crossSuffixTried, resolved: crossSuffixResolved }
+    }
+  };
   if ((process.env.CRV_DEBUG||'').includes('cross')) {
-    console.error(`[static-cross] tried=${crossTried} resolved=${crossResolved} ambiguous=${crossAmbiguous} noModule=${crossNoModule}`);
+    console.error(`[static-cross] tried=${crossTried} resolved=${crossResolved} ambiguous=${crossAmbiguous} noModule=${crossNoModule} prefixResolved=${crossPrefixResolved}/${crossPrefixTried} suffixResolved=${crossSuffixResolved}/${crossSuffixTried}`);
     if (crossSamples.length) console.error('[static-cross-samples] ' + JSON.stringify(crossSamples, null, 2));
   }
-  return { files: Array.from(filesByPath.values()), relations };
+  return { files: Array.from(filesByPath.values()), relations, metrics };
 }
 function resolveModuleToPath(mod:string, moduleMap?:Record<string,string>): string {
   if (moduleMap && moduleMap[mod]) return moduleMap[mod];

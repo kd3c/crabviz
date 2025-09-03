@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse, ast, json, os, sys, time, hashlib, builtins
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
+import ast, os, sys, json, time, hashlib, builtins, argparse
 
 
 EXCLUDE_DIRS = {"__pycache__", ".git", ".venv", "env", "venv", "build", "dist"}
@@ -63,19 +64,41 @@ class ModuleScanner(ast.NodeVisitor):
         self.module = module
         self.module_path = module_path
         # Collections
-        self.stack = []              # class / function nesting
-        self.functions = []          # collected FunctionInfo
-        self.edges = []              # collected Edge objects
-        self.unresolved = []         # unresolved call targets
-        self.name_index = {}         # simple name -> [qualnames]
-        self.class_methods = {}      # class qual -> {method names}
-        self.current_func = []       # call stack of qualified function names
+        self.stack: List[str] = []              # class / function nesting
+        self.functions: List[FunctionInfo] = [] # collected FunctionInfo
+        self.edges: List[Edge] = []             # collected Edge objects
+        self.unresolved: List[UnresolvedCall] = []  # unresolved call targets
+        self.name_index: Dict[str, List[str]] = {}  # simple name -> [qualnames]
+        self.class_methods: Dict[str, set] = {}     # class qual -> {method names}
+        self.current_func: List[str] = []       # call stack of qualified function names
         # Import alias tracking
-        self.imported_modules = {}   # alias -> module
-        self.imported_names = {}     # local name -> module.symbol
+        self.imported_modules: Dict[str,str] = {}   # alias -> module
+        self.imported_names: Dict[str,str] = {}     # local name -> module.symbol
+        self.imported_modules_set = set()  # track imported module names (for import graph edges)
         # Diagnostics (per module scan)
-        self.diag_cross_alias = []   # alias.func() provisional targets
-        self.diag_from_import = []   # from-import symbol provisional targets
+        self.diag_cross_alias: List[Dict] = []   # alias.func() provisional targets
+        self.diag_from_import: List[Dict] = []   # from-import symbol provisional targets
+        self.diag_partial_ref: List[Dict] = []   # partial(function, ...) higher-order references
+    
+    # Resolve a relative module string (like '.utils.sub') to absolute based on current module.
+    def _normalize_relative_module(self, mod: str) -> str:
+        if not mod.startswith('.'):
+            return mod
+        # Current package parts (exclude last component which is this module's file name)
+        pkg_parts = self.module.split('.')[:-1]
+        # Count leading dots
+        dots = 0
+        for ch in mod:
+            if ch == '.': dots += 1
+            else: break
+        rel_mod = mod[dots:]
+        # A single leading dot means current package (no ascent). N dots => ascend N-1 parents.
+        ascend = max(0, dots - 1)
+        if ascend > len(pkg_parts):
+            ascend = len(pkg_parts)
+        base = pkg_parts[:len(pkg_parts) - ascend]
+        parts = base + ([rel_mod] if rel_mod else [])
+        return '.'.join([p for p in parts if p])
 
     # Utility
     def _qual(self, name: str) -> str:
@@ -129,33 +152,80 @@ class ModuleScanner(ast.NodeVisitor):
                 # bare import x.y -> module name before dot becomes alias
                 root = alias.name.split('.')[0]
                 self.imported_modules[root] = root
+            # record full module (first segment only still provides dependency visibility)
+            self.imported_modules_set.add(alias.name.split('.')[0])
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom):  # type: ignore[override]
         if node.module is None:
             return  # relative import without module part: handled earlier
         mod = '.' * (node.level or 0) + node.module if node.level else node.module
+        # Normalize relative module references to absolute path to improve cross-root resolution
+        norm_mod = self._normalize_relative_module(mod)
         for alias in node.names:
             local = alias.asname or alias.name
-            self.imported_names[local] = f"{mod}.{alias.name}"
+            self.imported_names[local] = f"{norm_mod}.{alias.name}"
+        # record the module root referenced (first segment of module) for dependency edge
+        self.imported_modules_set.add(norm_mod)  # full normalized module path
+        root_seg = norm_mod.split('.')[0]
+        if root_seg:
+            self.imported_modules_set.add(root_seg)
         self.generic_visit(node)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):  # noqa: N802
         self.visit_FunctionDef(node)  # treat same
 
     def visit_Call(self, node: ast.Call):
-        if not self.current_func:
-            return
-        caller = self.current_func[-1]
-        target_name, resolved_qual, provenance = self._resolve_call(node)
-        if resolved_qual:
-            self.edges.append(Edge(caller=caller, callee=resolved_qual))
-        else:
-            if provenance and target_name:
-                # Emit provisional edge so later phase can attempt cross-root resolution
-                self.edges.append(Edge(caller=caller, callee=target_name, provenance=provenance))
-            elif target_name:
-                self.unresolved.append(UnresolvedCall(caller=caller, name=target_name))
+        # Allow top-level partial(...) detection using module sentinel; other calls ignored at top-level
+        top_level_caller = f"{self.module}.__module__"
+        in_func = bool(self.current_func)
+        caller = self.current_func[-1] if in_func else top_level_caller
+
+        target_name = resolved_qual = provenance = None
+        if in_func:
+            target_name, resolved_qual, provenance = self._resolve_call(node)
+            if resolved_qual:
+                self.edges.append(Edge(caller=caller, callee=resolved_qual))
+            else:
+                if provenance and target_name:
+                    # Emit provisional edge so later phase can attempt cross-root resolution
+                    self.edges.append(Edge(caller=caller, callee=target_name, provenance=provenance))
+                elif target_name:
+                    self.unresolved.append(UnresolvedCall(caller=caller, name=target_name))
+
+        # Higher-order detection: functools.partial / partial(function, ...)
+        try:
+            is_partial = False
+            if isinstance(node.func, ast.Name) and node.func.id == 'partial':
+                is_partial = True
+            elif isinstance(node.func, ast.Attribute) and node.func.attr == 'partial':
+                is_partial = True
+            if is_partial and node.args:
+                ref = node.args[0]
+                # Name reference
+                if isinstance(ref, ast.Name):
+                    rname = ref.id
+                    # Local function
+                    if rname in self.name_index:
+                        qual = self.name_index[rname][0]
+                        self.edges.append(Edge(caller=caller, callee=qual, provenance='partial-ref'))
+                        self.diag_partial_ref.append({'caller': caller, 'ref': rname, 'qual': qual})
+                    elif rname in self.imported_names:
+                        full = self.imported_names[rname]
+                        self.edges.append(Edge(caller=caller, callee=full, provenance='partial-ref-import'))
+                        self.diag_partial_ref.append({'caller': caller, 'ref': rname, 'import': full})
+                # Module alias attribute: alias.func
+                elif isinstance(ref, ast.Attribute) and isinstance(ref.value, ast.Name):
+                    alias = ref.value.id
+                    attr = ref.attr
+                    if alias in self.imported_modules:
+                        full = f"{self.imported_modules[alias]}.{attr}"
+                        self.edges.append(Edge(caller=caller, callee=full, provenance='partial-ref-alias'))
+                        self.diag_partial_ref.append({'caller': caller, 'alias': alias, 'attr': attr, 'full': full})
+        except Exception:
+            pass
+
+        # Only visit children for function bodies / nested expressions
         self.generic_visit(node)
 
     # Resolution helpers
@@ -166,10 +236,12 @@ class ModuleScanner(ast.NodeVisitor):
             name = func.id
             matches = self.name_index.get(name)
             if matches:
+                # If multiple, try to pick one within current class scope
                 if len(matches) > 1 and self.stack:
-                    for m in matches:
-                        if m.startswith(self.module + "." + ".".join(self.stack[:-1])):
-                            return name, m, None
+                    prefix = self.module + "." + ".".join(self.stack[:-1])
+                    scoped = [m for m in matches if m.startswith(prefix)]
+                    if len(scoped) == 1:
+                        return name, scoped[0], None
                 return name, matches[0], None
             if name in self.imported_names:
                 # imported symbol (from X import name) – produce provisional cross-module qual
@@ -182,18 +254,11 @@ class ModuleScanner(ast.NodeVisitor):
             attr = func.attr
             # self.method()
             if isinstance(func.value, ast.Name) and func.value.id == 'self':
-                # Determine current class
-                cls_parts = []
-                for element in self.stack:
-                    # last class before current function
-                    cls_parts.append(element)
-                # class name is second last if current top is function
-                if len(cls_parts) >= 2:
-                    class_name = cls_parts[-2]
+                cls_parts = list(self.stack)
+                if len(cls_parts) >= 2:  # class + current func
                     class_qual = ".".join([self.module] + cls_parts[:-1])
                     methods = self.class_methods.get(class_qual)
                     if methods and attr in methods:
-                        # Build method qual
                         qual = f"{class_qual}.{attr}"
                         return attr, qual, None
             # moduleAlias.func()
@@ -204,7 +269,6 @@ class ModuleScanner(ast.NodeVisitor):
                     full = f"{mod_full}.{attr}"
                     self.diag_cross_alias.append({'caller': self.current_func[-1] if self.current_func else None, 'alias': mod_alias, 'module': mod_full, 'attr': attr, 'target': full})
                     return full, None, 'provisional-alias'
-            # Fallback unresolved attribute; return final attr name
             return attr, None, None
         return None, None, None
 
@@ -409,6 +473,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             scanner, h = payload
             file_hashes[rel] = h
             files_processed += 1
+            # Add module sentinel function (lineno 1) for import edges if not already
+            sentinel_name = '__module__'
+            sentinel_qual = f"{scanner.module}.{sentinel_name}"
+            if not any(f.qualname == sentinel_qual for f in scanner.functions):
+                scanner.functions.append(FunctionInfo(id=sentinel_qual, name=sentinel_name, qualname=sentinel_qual, module=scanner.module, kind='function', lineno=1, endlineno=1))
             functions.extend(scanner.functions)
             edges.extend(scanner.edges)
             unresolved.extend(scanner.unresolved)
@@ -417,6 +486,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                 'imports': scanner.imported_modules,
                 'from_imports': scanner.imported_names
             })
+            # Emit import edges (module-level) to target module sentinel placeholders
+            for mod_atom in sorted(scanner.imported_modules_set):
+                if mod_atom and mod_atom != scanner.module.split('.')[0]:
+                    callee_mod = mod_atom  # we only know top-level here; resolution later
+                    edges.append(Edge(caller=sentinel_qual, callee=f"{callee_mod}.__module__", kind='call', provenance='import'))
             if scanner.diag_cross_alias:
                 diag_cross_alias.extend(scanner.diag_cross_alias)
             if scanner.diag_from_import:
@@ -546,10 +620,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     out['diag'] = {
         'cross_alias_total': len(diag_cross_alias),
         'from_import_total': len(diag_from_import),
+        'partial_ref_total': 0,
         'cross_alias_samples': diag_cross_alias[:25],
         'from_import_samples': diag_from_import[:25],
         'unresolved_hist': sorted(unresolved_hist.items(), key=lambda x: x[1], reverse=True)[:20],
     }
+    partial_samples = [e.__dict__ for e in edges if getattr(e, 'provenance', '').startswith('partial-ref')][:25]
+    out['diag']['partial_ref_total'] = len([e for e in edges if getattr(e, 'provenance', '').startswith('partial-ref')])
+    if partial_samples:
+        out['diag']['partial_ref_samples'] = partial_samples
     data = json.dumps(out, indent=2, sort_keys=True)
     if args.out:
         with open(args.out, 'w', encoding='utf-8') as f:
