@@ -180,10 +180,18 @@ export async function scanPy(
         let run;
         // Accumulate merged JSON across roots
         let merged: any = { functions: [], edges: [], unresolved_calls: [] };
+        // Allow overriding max buffer (default 50MB) to handle large projects; avoid ENOBUFS.
+        const pyMaxBuffer = (() => {
+          const v = parseInt(process.env.CRABVIZ_PY_MAX_BUFFER||'', 10);
+            return Number.isFinite(v) && v > 0 ? v : 50 * 1024 * 1024; // 50MB default
+        })();
         for (const rootDir of roots) {
           for (const cmd of pyCmds) {
-            run = spawnSync(cmd, [scriptPath, '--root', resolve(rootDir), '--max-file-size', '1000000'], { encoding: 'utf-8' });
+            run = spawnSync(cmd, [scriptPath, '--root', resolve(rootDir), '--max-file-size', '1000000'], { encoding: 'utf-8', maxBuffer: pyMaxBuffer });
             if (!run.error) break;
+          }
+          if (run && (run as any).error && (run as any).error.code === 'ENOBUFS') {
+            console.error('[py-static] analyzer stdout overflow (ENOBUFS). Increase buffer via env CRABVIZ_PY_MAX_BUFFER (bytes) or reduce root size.');
           }
           if (run && run.status === 0) {
             try {

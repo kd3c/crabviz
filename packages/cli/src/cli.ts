@@ -292,6 +292,36 @@ async function main() {
     overlayInternalEdges = symGraph.relations.filter(r=> r.from.fileId === r.to.fileId);
     symGraph.relations = symGraph.relations.filter(r=> r.from.fileId !== r.to.fileId);
     if (!argv.quiet) console.error('[crabviz] overlaying internal same-file edges inside table nodes (', overlayInternalEdges.length, 'edges )');
+    // Filter overlay edges to only those whose endpoints will actually be rendered at current symbol depth.
+    try {
+      const symbolDepthUsed = (callDepth === 0 ? 0 : effectiveSymbolDepthDetailed);
+      if (symbolDepthUsed <= 0) {
+        overlayInternalEdges = [];
+      } else {
+        const visible = new Set<string>();
+        function walkSymbols(file:any, syms:any[], depth:number){
+          if (depth>symbolDepthUsed) return;
+            for (const s of syms){
+              visible.add(file.id+':'+s.range.start.line+'_'+s.range.start.character);
+              if (s.children?.length) walkSymbols(file, s.children, depth+1);
+            }
+        }
+        for (const f of symGraph.files){
+          walkSymbols(f, f.symbols||[], 1);
+        }
+        const before = overlayInternalEdges.length;
+        const dedup = new Map<string, any>();
+        for (const e of overlayInternalEdges){
+          const fromKey = e.from.fileId+':'+e.from.line+'_'+e.from.character;
+          const toKey   = e.to.fileId+':'+e.to.line+'_'+e.to.character;
+          if (!visible.has(fromKey) || !visible.has(toKey)) continue; // endpoint not rendered, skip
+          const key = fromKey+'>'+toKey+'#'+e.kind;
+          if (!dedup.has(key)) dedup.set(key, e);
+        }
+        overlayInternalEdges = Array.from(dedup.values());
+        if (!argv.quiet) console.error('[crabviz] overlay internal edges filtered from', before, 'to', overlayInternalEdges.length, '(visible symbols:', visible.size, ')');
+      }
+    } catch (err:any) { if(!argv.quiet) console.error('[crabviz] overlay filter failed', err?.message||err); }
   }
   const rootDir = fileIds.length ? resolve(fileIds[0], '..') : process.cwd();
   // If callDepth=0 force symbol depth to 0 for pure file-level view (unless user explicitly set a positive symbolDepth)
@@ -308,10 +338,12 @@ async function main() {
           if (optional) return '';
           throw new Error('Asset not found: '+rel+' tried '+attempt.join(','));
         }
-        const theme = readAsset('webview-ui/src/styles/graph-theme.css', true)+readAsset('webview-ui/src/styles/svg.css', true);
-        const css = readAsset('webview-ui/src/assets/out/index.css', true);
-        const js  = readAsset('webview-ui/src/assets/out/index.js', true);
-        const runtimeInit = js.trim().length ? `${js}\ntry{const svgEl=document.querySelector('.callgraph');if(svgEl&& typeof CallGraph!=='undefined'){const g=new CallGraph(svgEl,null);g.setUpPanZoom();}}catch{}` : '';
+  const theme = readAsset('webview-ui/src/styles/graph-theme.css', true)+readAsset('webview-ui/src/styles/svg.css', true);
+  const css = readAsset('webview-ui/src/assets/out/index.css', true);
+  const js  = readAsset('webview-ui/src/assets/out/index.js', true);
+  const runtimeInit = js.trim().length ? `${js}\ntry{const svgEl=document.querySelector('.callgraph');if(svgEl&& typeof CallGraph!=='undefined'){const g=new CallGraph(svgEl,null);g.setUpPanZoom();}}catch{}` : '';
+  // Fallback lightweight pan/zoom if bundled UI script is missing
+  const fallbackRuntime = `(() => {\n  if (typeof window === 'undefined') return;\n  const svg = document.querySelector('svg.callgraph'); if(!svg) return;\n  const graph0 = svg.querySelector('#graph0') || svg;\n  let isDown=false; let lastX=0,lastY=0; let tx=0,ty=0; let scale=1;\n  function apply(){ graph0.setAttribute('transform', 'translate('+tx+','+ty+') scale('+scale+')'); }\n  svg.addEventListener('mousedown', e=>{ if(e.button!==0) return; isDown=true; lastX=e.clientX; lastY=e.clientY; });\n  window.addEventListener('mousemove', e=>{ if(!isDown) return; tx += (e.clientX-lastX); ty += (e.clientY-lastY); lastX=e.clientX; lastY=e.clientY; apply(); });\n  window.addEventListener('mouseup', ()=>{ isDown=false; });\n  svg.addEventListener('wheel', e=>{ e.preventDefault(); const d = e.deltaY>0? 0.9:1.1; const prev=scale; scale=Math.min(8,Math.max(0.1, scale*d)); const rect = svg.getBoundingClientRect(); const cx = e.clientX-rect.left; const cy = e.clientY-rect.top; // zoom about cursor\n    tx = cx - (cx - tx) * (scale/prev); ty = cy - (cy - ty) * (scale/prev); apply(); }, { passive:false });\n})();`;
         let overlayScript = '';
         if (overlayInternalEdges && overlayInternalEdges.length) {
           const payload = JSON.stringify(overlayInternalEdges.map(e=> ({ f: e.from.fileId, fl:e.from.line, fc:e.from.character, t: e.to.fileId, tl:e.to.line, tc:e.to.character, k: e.kind })));
@@ -349,7 +381,7 @@ async function main() {
           script += `</script>`;
           overlayScript = script;
         }
-        const html = `<!DOCTYPE html><html><head><meta charset=utf-8><title>${he.encode('Crabviz Detailed')}</title><style>${theme}\n${css}</style></head><body>${svg.outerHTML}${ runtimeInit? `<script type=module>${runtimeInit}</script>`:''}${overlayScript}</body></html>`;
+  const html = `<!DOCTYPE html><html><head><meta charset=utf-8><title>${he.encode('Crabviz Detailed')}</title><style>${theme}\n${css}</style></head><body>${svg.outerHTML}${ runtimeInit? `<script type=module>${runtimeInit}</script>`:`<script>${fallbackRuntime}</script>`}${overlayScript}</body></html>`;
         if (overlayInternalEdges && overlayInternalEdges.length && !argv.quiet) {
           console.error('[crabviz] overlay script length', overlayScript.length, 'edges', overlayInternalEdges.length);
         }
