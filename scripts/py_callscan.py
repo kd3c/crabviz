@@ -73,6 +73,9 @@ class ModuleScanner(ast.NodeVisitor):
         # Import alias tracking
         self.imported_modules = {}   # alias -> module
         self.imported_names = {}     # local name -> module.symbol
+        # Diagnostics (per module scan)
+        self.diag_cross_alias = []   # alias.func() provisional targets
+        self.diag_from_import = []   # from-import symbol provisional targets
 
     # Utility
     def _qual(self, name: str) -> str:
@@ -144,33 +147,36 @@ class ModuleScanner(ast.NodeVisitor):
         if not self.current_func:
             return
         caller = self.current_func[-1]
-        target_name, resolved_qual = self._resolve_call(node)
+        target_name, resolved_qual, provenance = self._resolve_call(node)
         if resolved_qual:
             self.edges.append(Edge(caller=caller, callee=resolved_qual))
         else:
-            if target_name:
+            if provenance and target_name:
+                # Emit provisional edge so later phase can attempt cross-root resolution
+                self.edges.append(Edge(caller=caller, callee=target_name, provenance=provenance))
+            elif target_name:
                 self.unresolved.append(UnresolvedCall(caller=caller, name=target_name))
         self.generic_visit(node)
 
     # Resolution helpers
-    def _resolve_call(self, node: ast.Call) -> Tuple[Optional[str], Optional[str]]:
+    def _resolve_call(self, node: ast.Call) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         func = node.func
         # Simple name foo()
         if isinstance(func, ast.Name):
             name = func.id
             matches = self.name_index.get(name)
             if matches:
-                # Prefer function in same innermost class scope if multiple
                 if len(matches) > 1 and self.stack:
                     for m in matches:
                         if m.startswith(self.module + "." + ".".join(self.stack[:-1])):
-                            return name, m
-                return name, matches[0]
-            # Imported name referencing external function: record full module.symbol if known
+                            return name, m, None
+                return name, matches[0], None
             if name in self.imported_names:
+                # imported symbol (from X import name) – produce provisional cross-module qual
                 full = self.imported_names[name]
-                return full, None  # treat as unresolved candidate with full path
-            return name, None
+                self.diag_from_import.append({'caller': self.current_func[-1] if self.current_func else None, 'symbol': name, 'target': full})
+                return full, None, 'provisional-fromimport'
+            return name, None, None
         # Attribute: self.method() inside class
         if isinstance(func, ast.Attribute):
             attr = func.attr
@@ -189,17 +195,18 @@ class ModuleScanner(ast.NodeVisitor):
                     if methods and attr in methods:
                         # Build method qual
                         qual = f"{class_qual}.{attr}"
-                        return attr, qual
+                        return attr, qual, None
             # moduleAlias.func()
             if isinstance(func.value, ast.Name):
                 mod_alias = func.value.id
                 if mod_alias in self.imported_modules:
                     mod_full = self.imported_modules[mod_alias]
                     full = f"{mod_full}.{attr}"
-                    return full, None
+                    self.diag_cross_alias.append({'caller': self.current_func[-1] if self.current_func else None, 'alias': mod_alias, 'module': mod_full, 'attr': attr, 'target': full})
+                    return full, None, 'provisional-alias'
             # Fallback unresolved attribute; return final attr name
-            return attr, None
-        return None, None
+            return attr, None, None
+        return None, None, None
 
 
 def add_parents(node: ast.AST):
@@ -272,10 +279,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     functions: List[FunctionInfo] = []
     edges: List[Edge] = []
     unresolved: List[UnresolvedCall] = []
+    modules_meta: List[Dict] = []
     imported_candidates: List[Tuple[str,str]] = []  # (caller, fullExternalName)
     files_processed = 0
     skipped_size = 0
     skipped_parse = 0
+    # Aggregate diagnostics
+    diag_cross_alias: List[Dict] = []
+    diag_from_import: List[Dict] = []
 
     file_hashes: Dict[str,str] = {}
     paths = list(iter_py_files(root, args.skip_dir))
@@ -401,6 +412,15 @@ def main(argv: Optional[List[str]] = None) -> int:
             functions.extend(scanner.functions)
             edges.extend(scanner.edges)
             unresolved.extend(scanner.unresolved)
+            modules_meta.append({
+                'module': scanner.module,
+                'imports': scanner.imported_modules,
+                'from_imports': scanner.imported_names
+            })
+            if scanner.diag_cross_alias:
+                diag_cross_alias.extend(scanner.diag_cross_alias)
+            if scanner.diag_from_import:
+                diag_from_import.extend(scanner.diag_from_import)
             # Build unit for cache
             cache_units[rel] = {
                 'hash': h,
@@ -433,8 +453,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         'files': files_processed,
         'skipped': {'size': skipped_size, 'parse': skipped_parse},
         'functions': [fi.__dict__ for fi in functions],
-        'edges': [e.__dict__ for e in edges],
-        'unresolved_calls': [u.__dict__ for u in unresolved],
+    'edges': [e.__dict__ for e in edges],
+    'unresolved_calls': [u.__dict__ for u in unresolved],
+    'modules_meta': modules_meta,
         'file_hashes': file_hashes,
         'workers': args.workers,
     }
@@ -458,10 +479,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         simple_index.setdefault(f.name, []).append(f.qualname)
 
     new_edges_imported = 0
+    imported_missing = 0
+    imported_dotted_hist: Dict[str,int] = {}
     for caller, full in imported_candidates:
+        base_mod = full.split('.')[0]
+        imported_dotted_hist[base_mod] = imported_dotted_hist.get(base_mod, 0) + 1
         if full in func_set:
             edges.append(Edge(caller=caller, callee=full, provenance='static-cross-import'))
             new_edges_imported += 1
+        else:
+            imported_missing += 1
 
     # Cross-module resolution for unresolved entries
     resolved_cross = 0
@@ -469,6 +496,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     builtin_names = set(dir(builtins)) if args.ignore_builtin_unresolved else set()
     remaining_unresolved: List[UnresolvedCall] = []
     top_modules = {f.module.split('.')[0] for f in functions if f.module}
+    unresolved_hist: Dict[str,int] = {}
     for u in unresolved:
         name = u.name.lstrip('.') if u.name else u.name
         if args.ignore_builtin_unresolved and name in builtin_names:
@@ -482,6 +510,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             if '.' in name:
                 for tm in top_modules:
                     candidates.append(f"{tm}.{name}")
+            first = name.split('.')[0]
+            unresolved_hist[first] = unresolved_hist.get(first, 0) + 1
         matched = None
         for cand in candidates:
             if cand in func_set:
@@ -503,11 +533,23 @@ def main(argv: Optional[List[str]] = None) -> int:
     out['edges'] = [e.__dict__ for e in edges]
     if new_edges_imported:
         out['resolved_external'] = new_edges_imported
+    if imported_missing:
+        out['imported_missing'] = imported_missing
+        out['imported_candidates'] = len(imported_candidates)
+    if imported_dotted_hist:
+        out['imported_hist'] = sorted(imported_dotted_hist.items(), key=lambda x: x[1], reverse=True)[:15]
     if resolved_cross:
         out['resolved_cross_module'] = resolved_cross
     if builtin_ignored:
         out['ignored_builtins'] = builtin_ignored
 
+    out['diag'] = {
+        'cross_alias_total': len(diag_cross_alias),
+        'from_import_total': len(diag_from_import),
+        'cross_alias_samples': diag_cross_alias[:25],
+        'from_import_samples': diag_from_import[:25],
+        'unresolved_hist': sorted(unresolved_hist.items(), key=lambda x: x[1], reverse=True)[:20],
+    }
     data = json.dumps(out, indent=2, sort_keys=True)
     if args.out:
         with open(args.out, 'w', encoding='utf-8') as f:
@@ -521,11 +563,23 @@ def main(argv: Optional[List[str]] = None) -> int:
         except Exception:
             pass
     # Stats line for logs
-    sys.stderr.write(
+    stats_line = (
         f"PYSCAN_STATS files={files_processed} functions={len(functions)} edges={len(edges)} "
         f"unresolved={len(unresolved)} reused_files={reused_files} parsed_files={files_processed - reused_files} "
-        f"resolved_cross={out.get('resolved_cross_module',0)} ignored_builtins={out.get('ignored_builtins',0)} pruned={cache_pruned}\n"
+        f"resolved_cross={out.get('resolved_cross_module',0)} imported_resolved={out.get('resolved_external',0)} "
+        f"imported_missing={out.get('imported_missing',0)} ignored_builtins={out.get('ignored_builtins',0)} pruned={cache_pruned}"
     )
+    sys.stderr.write(stats_line + "\n")
+    if (os.getenv('CRV_DEBUG') or '').find('pyscan') != -1:
+        sys.stderr.write('[pyscan-diag] ' + json.dumps({
+            'cross_alias_total': len(diag_cross_alias),
+            'from_import_total': len(diag_from_import),
+            'imported_candidates': len(imported_candidates),
+            'imported_missing': out.get('imported_missing',0),
+            'resolved_external': out.get('resolved_external',0),
+            'resolved_cross_module': out.get('resolved_cross_module',0),
+            'unresolved_hist_top': out['diag']['unresolved_hist']
+        }) + '\n')
     return 0
 
 
