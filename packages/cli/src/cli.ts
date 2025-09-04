@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { launchPyright, launchTsServer } from "./lsp-manager.js";
 import { scanTs } from "./lang-ts.js";
 import { scanPy } from "./lang-py.js";
+import { buildStaticPyGraph } from './static-py.js';
 import { mergeGraphs, toDot } from "./graph.js";
 import { dotToHtml } from "./html.js";
 import { emitCrabvizExportHtmlFromDot, emitCrabvizSvgFromDot, emitFileLevelInteractiveHtml } from "./export-html.js";
@@ -21,16 +22,20 @@ type Args = {
   renderer: "export" | "viz";   // export = extension-like, viz = minimal
   format: "html" | "svg";       // only used with renderer=export
   uiFile: boolean;                // new: use file-level interactive pipeline
-  maxDepth?: number;              // call graph recursion depth limit
+  maxDepth?: number;              // (deprecated) original recursion depth limit (0 previously disabled calls)
+  callDepth?: number;             // new: external call hierarchy depth (0=file-level only, 1=direct calls, N>=2 deeper)
   impl?: boolean;                 // include implementation edges
   trimLastDepth?: boolean;        // drop deepest depth relations (one level before leaf)
   quiet?: boolean;                // suppress log output
   symbolDepth?: number;           // limit symbol nesting depth in UI export
   rankdir?: string;               // layout direction (LR or TB)
   filesPerRow?: number;           // when rankdir=TB, group N files per rank row inside folder clusters
-  showCalls?: 'none' | 'file' | 'function'; // control which call/import relationships to show
-  callDepth?: number;             // user-friendly hop depth (number of call hops to explore; 0 = unlimited)
-  suppressInnerCalls?: boolean;   // new: hide intra-file call edges while keeping inter-file
+  rootGrid?: string;              // layout grid specification CxR (Phase L1 parsing)
+  showInternalFileCalls?: boolean; // keep self-loop file-level call edges at symbol depth
+  symbolLayout?: string;          // 'table' | 'split' (split = per-symbol nodes)
+  pythonEngine?: string;          // 'auto' | 'lsp' | 'static'
+  hideImports?: boolean;          // hide import edges
+  dotOut?: string;                // write raw DOT
 };
 
 async function main() {
@@ -39,19 +44,24 @@ async function main() {
     .option("roots", { type: "array", demandOption: true })
     .option("out", { type: "string", demandOption: true })
     .option("simplified", { type: "boolean", default: false })
-  .option("max-depth", { type: "number", describe: "Max recursive call hierarchy depth (default unlimited)", default: 0 })
+  // Deprecated: --max-depth (legacy: 0 meant *no* calls). Keep for backward compatibility.
+  .option("max-depth", { type: "number", describe: "[DEPRECATED] Use --call-depth instead. Legacy: 0 = no call edges.", default: undefined })
+  .option("call-depth", { type: "number", describe: "Call hierarchy depth: 0=file-level only (imports), 1=direct calls, N=multi-hop. (default: 1)", default: 1 })
   .option("impl", { type: "boolean", describe: "Include interface implementation edges", default: true })
   .option("trim-last-depth", { type: "boolean", describe: "Trim the deepest collected call depth (one level before leaves)", default: false })
   .option("quiet", { type: "boolean", describe: "Suppress log / debug output", default: false })
   .option("renderer", { type: "string", choices: ["export","viz"] as const, default: "export" })
     .option("format", { type: "string", choices: ["html","svg"] as const, default: "html" })
   .option("ui-file", { type: "boolean", default: false, describe: "Use file-level UI-style interactive export (no function symbols yet)" })
-  .option("symbol-depth", { type: "number", describe: "Limit symbol nesting depth for --ui-file export. 0 = no symbols (file rows only), 1 = top-level symbols, etc. (default: unlimited for detailed, 0 for --simplified)", default: -1 })
+  .option("symbol-depth", { type: "number", describe: "Limit symbol nesting depth for --ui-file export. 0 = files only, 1 = files & functions, 2 = files, functions & arguments. (default: 1)", default: 1 })
   .option("rankdir", { type: "string", choices: ["LR","TB"], describe: "Graph layout direction (LR=left-right, TB=top-bottom)", default: "LR" })
   .option("files-per-row", { type: "number", describe: "When --rankdir=TB, pack up to N file nodes per horizontal row within a folder", default: 0 })
-  .option("show-calls", { type: "string", choices: ["none","file","function"], default: "function", describe: "Which relationships to include: none, file-level import edges only, or full function-level call edges" })
-  .option("call-depth", { type: "number", default: 0, describe: "Number of call hops to traverse for --show-calls=function (0 = unlimited). e.g. 1 shows direct calls only; 2 includes callers-of-callers." })
-  .option("suppress-inner-calls", { type: "boolean", default: false, describe: "Hide call edges where source and target are in the same file (reduces visual clutter)" })
+  .option("root-grid", { type: "string", describe: "Arrange roots in a grid CxR (Phase L1: parse only, horizontal placement upcoming)", default: undefined })
+  .option("show-internal-file-calls", { type: "boolean", describe: "Show call edges within the same file (symbol-level export). For --symbol-layout table these are rendered as an in-node overlay (no giant self-loop arcs). Hidden by default to reduce clutter", default: false })
+  .option("symbol-layout", { type: "string", choices:["table","split","cluster"], describe: "Symbol rendering layout: table (single file node), split (loose symbol nodes), cluster (stacked per-symbol nodes in file cluster)", default: "split" })
+  .option("python-engine", { type: "string", choices: ["auto","lsp","static"], default: "auto", describe: "Python analysis engine: static (AST) or lsp (pyright). auto selects static." })
+  .option("hide-imports", { type: "boolean", default: false, describe: "Hide import edges (show only call edges)" })
+  .option("dot-out", { type: "string", describe: "Also write raw DOT graph to this file (debug)" })
     .help().argv) as unknown as Args;
 
   const roots = argv.roots.map(r => resolve(String(r)));
@@ -69,15 +79,56 @@ async function main() {
   function commonRoot(paths:string[]):string { if(!paths.length) return process.cwd(); const segs = paths.map(p=> p.split(/\\|\//)); const minLen = Math.min(...segs.map(a=>a.length)); let i=0; for(; i<minLen; i++){ const part = segs[0][i]; if(!segs.every(a=> a[i]===part)) break; } return segs[0].slice(0,i).join('/') || process.cwd(); }
   const lspRoot = commonRoot(roots);
   const tsClient = await launchTsServer(lspRoot);
-  const pyClient = await launchPyright(lspRoot);
+  // Python engine selection (Stage 2): default to static to avoid weak LSP call hierarchy.
+  const pythonEngine = (argv.pythonEngine||'auto');
+  const useStatic = pythonEngine === 'static' || pythonEngine === 'auto';
+  const pyClient = useStatic ? null : await launchPyright(lspRoot);
 
   try {
-    // Apply layout config early
-    setLayoutConfig({ rankdir: (argv.rankdir==='TB'?'TB':'LR') as any, filesPerRow: argv.filesPerRow && argv.filesPerRow>0 ? argv.filesPerRow : 0 });
-  if (!argv.quiet) console.error(`[crabviz:${runId}] scanning roots (${roots.length}):\n  ${roots.join('\n  ')}`);
-  const tsPart = await scanTs(roots, tsClient);
-  const pyPart = await scanPy(roots, pyClient);
-    const gd     = mergeGraphs([tsPart, pyPart]);
+    // Apply layout config early (Phase L1: parse --root-grid CxR and pass through)
+    let rootGridCfg: undefined | { cols:number; rows:number; raw:string } = undefined;
+    if (argv.rootGrid) {
+      const m = String(argv.rootGrid).trim().toLowerCase().match(/^(\d+)x(\d+)$/);
+      if (m) {
+        const cols = parseInt(m[1],10); const rows = parseInt(m[2],10);
+        if (cols>0 && rows>0) rootGridCfg = { cols, rows, raw: argv.rootGrid };
+      }
+    }
+    // Adaptive symbol layout default:
+    // If user did NOT pass --symbol-layout explicitly, choose:
+    //   rankdir=TB -> table (better stacking)
+    //   rankdir=LR -> split  (better edge clarity)
+    const userProvidedSymbolLayout = (process.argv.some(a=> a.startsWith('--symbol-layout')));
+    const rankdirEff = (argv.rankdir==='TB'?'TB':'LR') as any;
+    let effSymbolLayout: 'table' | 'split' | 'cluster';
+    if (userProvidedSymbolLayout) {
+      const sl = (argv as any).symbolLayout;
+      effSymbolLayout = (sl === 'table' || sl === 'cluster') ? sl : 'split';
+    } else {
+      effSymbolLayout = rankdirEff === 'TB' ? 'table' : 'split';
+    }
+  const layoutForConfig = effSymbolLayout; // preserve cluster so symbol graph can detect it
+    setLayoutConfig({
+      rankdir: rankdirEff,
+      filesPerRow: argv.filesPerRow && argv.filesPerRow>0 ? argv.filesPerRow : 0,
+      rootGrid: rootGridCfg,
+      rootPaths: roots,
+      symbolLayout: layoutForConfig as any
+    });
+    const tsPart = await scanTs(roots, tsClient);
+  const pyPart = await scanPy(roots, pyClient as any, { engine: useStatic? 'static':'lsp' });
+  const gd     = mergeGraphs([tsPart, pyPart]);
+  const staticPyGraph = (useStatic && pyPart.staticResult?.rawJson) ? buildStaticPyGraph(pyPart.staticResult.rawJson, pyPart.staticResult.moduleMap, { includeInternal: argv.showInternalFileCalls }) : null;
+
+    // Determine effective call depth semantics
+    // Priority: explicit --call-depth > legacy --max-depth > default (1)
+    const legacyMaxDepth = argv.maxDepth;
+    const callDepth = (typeof argv.callDepth === 'number' && !Number.isNaN(argv.callDepth))
+      ? argv.callDepth!
+      : (typeof legacyMaxDepth === 'number' ? legacyMaxDepth : 1);
+    if (legacyMaxDepth !== undefined && argv.callDepth === undefined && !argv.quiet) {
+      console.error('[crabviz] --max-depth is deprecated; use --call-depth. Interpreting value as call-depth.');
+    }
 
     if (argv.uiFile && argv.renderer === 'export' && argv.format === 'html') {
         const symbolDepthFlag = (argv.symbolDepth ?? -1);
@@ -92,8 +143,19 @@ async function main() {
         const pyFiles = fileIds.filter(f=> /\.py$/i.test(f));
         const tsFiles = fileIds.filter(f=> !/\.py$/i.test(f));
         const subGraphs: any[] = [];
-  if (tsFiles.length) subGraphs.push(await buildSymbolGraph(tsFiles, tsClient, { collapse:false, maxDepth:0, includeImpl:false, trimLastDepth: argv.trimLastDepth, skipCalls:true }));
-  if (pyFiles.length) subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, { collapse:false, maxDepth:0, includeImpl:false, trimLastDepth: argv.trimLastDepth, skipCalls:true }));
+        // Respect --call-depth: internal maxDepth collects depths 0..callDepth-1. callDepth=0 => no call edges.
+        const internalMaxDepth = callDepth <= 0 ? 0 : callDepth; // mirror detailed path semantics
+        const skipCalls = callDepth === 0;
+        if (tsFiles.length) subGraphs.push(await buildSymbolGraph(tsFiles, tsClient, { collapse:false, maxDepth: internalMaxDepth, includeImpl:false, trimLastDepth: argv.trimLastDepth, skipCalls }));
+        if (pyFiles.length) {
+          if (pyClient) {
+            subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, { collapse:false, maxDepth: internalMaxDepth, includeImpl:false, trimLastDepth: argv.trimLastDepth, skipCalls }));
+          } else if (staticPyGraph) {
+            // If static, we already have file-level collapsed call edges; strip them if callDepth=0
+            const g = skipCalls ? { files: staticPyGraph.files, relations: [] } : staticPyGraph;
+            subGraphs.push(g as any);
+          }
+        }
         // Reassign ids to keep them unique across merged graphs
         const symGraph = { files: [] as any[], relations: [] as any[] };
         let nextId = 0; const idRemap = new Map<string, number>();
@@ -177,13 +239,19 @@ async function main() {
   const pyFiles = fileIds.filter(f=> /\.py$/i.test(f));
   const tsFiles = fileIds.filter(f=> !/\.py$/i.test(f));
   const subGraphs: any[] = [];
-  // Map --call-depth (hops) to internal maxDepth (symbol recursion). Internal depth starts at 0; processing a depth level collects outgoing edges to next level without needing to recurse into that next level to record them. Therefore internalMaxDepth = (callDepth>0) ? callDepth-1 : -1 (unlimited)
-  const callDepth = argv.callDepth ?? 0;
-  const internalMaxDepth = (callDepth>0) ? callDepth-1 : -1; // -1 => unlimited per buildSymbolGraph guard logic
-  const showCallsMode = argv.showCalls || 'function';
-  const skipCalls = showCallsMode !== 'function';
-  if (tsFiles.length) subGraphs.push(await buildSymbolGraph(tsFiles, tsClient, { collapse:false, maxDepth: internalMaxDepth, includeImpl: argv.impl!==false, trimLastDepth: argv.trimLastDepth, skipCalls }));
-  if (pyFiles.length) subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, { collapse:false, maxDepth: internalMaxDepth, includeImpl: argv.impl!==false, trimLastDepth: argv.trimLastDepth, skipCalls }));
+  // Map callDepth to internal maxDepth: internal maxDepth = callDepth (depth levels collected are 0..callDepth-1)
+  // Special case: callDepth 0 => skipCalls (file-level only)
+  const internalMaxDepth = callDepth <= 0 ? 0 : callDepth; // pass through for readability
+  const buildOptsBase = (skipCalls:boolean) => ({ collapse:false, maxDepth: internalMaxDepth, includeImpl: argv.impl!==false, trimLastDepth: argv.trimLastDepth, skipCalls });
+  if (tsFiles.length) subGraphs.push(await buildSymbolGraph(tsFiles, tsClient, buildOptsBase(callDepth === 0)));
+  if (pyFiles.length) {
+    if (pyClient) subGraphs.push(await buildSymbolGraph(pyFiles, pyClient, buildOptsBase(callDepth === 0)));
+    else if (staticPyGraph) {
+      // Respect callDepth=0 by stripping call relations for static graph
+      const g = callDepth === 0 ? { files: staticPyGraph.files, relations: [] } : staticPyGraph;
+      subGraphs.push(g as any);
+    }
+  }
   const symGraph = { files: [] as any[], relations: [] as any[] };
   let nextId = 0; const idRemap = new Map<string, number>();
   for (const sg of subGraphs) {
@@ -218,12 +286,65 @@ async function main() {
       } as any);
     }
   }
-  if (!argv.quiet) console.error(`[crabviz:${runId}] building symbol graph (detailed) files=${symGraph.files.length} relationsPreImport=${symGraph.relations.length}`);
-  const rootDir = fileIds.length ? resolve(fileIds[0], '..') : process.cwd();
-  if (argv.suppressInnerCalls) {
+  // Drop same-file edges unless user explicitly wants them to reduce vertical stretching noise in TB layouts
+  let effectiveLayout = 'table';
+  try {
+    const layoutCfgMod: any = await import('./ui-file-graph.js');
+    if (layoutCfgMod && layoutCfgMod._layoutConfig && layoutCfgMod._layoutConfig.symbolLayout) {
+      effectiveLayout = layoutCfgMod._layoutConfig.symbolLayout;
+    }
+  } catch { /* ignore */ }
+  // Refresh effective layout from config (now includes 'cluster')
+  try {
+    const { getLayoutConfig } = await import('./ui-file-graph.js');
+    const cfg = getLayoutConfig();
+    effectiveLayout = (cfg.symbolLayout as any) || effectiveLayout;
+  } catch {/* ignore */}
+  let overlayInternalEdges: any[] | null = null;
+  const wantOverlay = effectiveLayout === 'table' && argv.showInternalFileCalls; // always overlay in table layout when requested
+  if (!argv.showInternalFileCalls) {
+    // User did not request internal edges: drop them to reduce clutter
     symGraph.relations = symGraph.relations.filter(r=> r.from.fileId !== r.to.fileId);
+  } else if (wantOverlay) {
+    // Extract same-file edges so they are NOT rendered as Graphviz self-loops; keep for later overlay injection.
+    overlayInternalEdges = symGraph.relations.filter(r=> r.from.fileId === r.to.fileId);
+    symGraph.relations = symGraph.relations.filter(r=> r.from.fileId !== r.to.fileId);
+    if (!argv.quiet) console.error('[crabviz] overlaying internal same-file edges inside table nodes (', overlayInternalEdges.length, 'edges )');
+    // Filter overlay edges to only those whose endpoints will actually be rendered at current symbol depth.
+    try {
+      const symbolDepthUsed = (callDepth === 0 ? 0 : effectiveSymbolDepthDetailed);
+      if (symbolDepthUsed <= 0) {
+        overlayInternalEdges = [];
+      } else {
+        const visible = new Set<string>();
+        function walkSymbols(file:any, syms:any[], depth:number){
+          if (depth>symbolDepthUsed) return;
+            for (const s of syms){
+              visible.add(file.id+':'+s.range.start.line+'_'+s.range.start.character);
+              if (s.children?.length) walkSymbols(file, s.children, depth+1);
+            }
+        }
+        for (const f of symGraph.files){
+          walkSymbols(f, f.symbols||[], 1);
+        }
+        const before = overlayInternalEdges.length;
+        const dedup = new Map<string, any>();
+        for (const e of overlayInternalEdges){
+          const fromKey = e.from.fileId+':'+e.from.line+'_'+e.from.character;
+          const toKey   = e.to.fileId+':'+e.to.line+'_'+e.to.character;
+          if (!visible.has(fromKey) || !visible.has(toKey)) continue; // endpoint not rendered, skip
+          const key = fromKey+'>'+toKey+'#'+e.kind;
+          if (!dedup.has(key)) dedup.set(key, e);
+        }
+        overlayInternalEdges = Array.from(dedup.values());
+        if (!argv.quiet) console.error('[crabviz] overlay internal edges filtered from', before, 'to', overlayInternalEdges.length, '(visible symbols:', visible.size, ')');
+      }
+    } catch (err:any) { if(!argv.quiet) console.error('[crabviz] overlay filter failed', err?.message||err); }
   }
-  const svg = await renderSymbolGraph(symGraph, rootDir, false, effectiveSymbolDepthDetailed);
+  const rootDir = fileIds.length ? resolve(fileIds[0], '..') : process.cwd();
+  // If callDepth=0 force symbol depth to 0 for pure file-level view (unless user explicitly set a positive symbolDepth)
+  const effSymDepth = callDepth === 0 ? 0 : effectiveSymbolDepthDetailed;
+  const svg = await renderSymbolGraph(symGraph, rootDir, false, effSymDepth);
         const fsMod = await import('node:fs');
         function readAsset(rel:string, optional=false){
           const attempt = [
@@ -235,33 +356,66 @@ async function main() {
           if (optional) return '';
           throw new Error('Asset not found: '+rel+' tried '+attempt.join(','));
         }
-        const theme = readAsset('webview-ui/src/styles/graph-theme.css', true)+readAsset('webview-ui/src/styles/svg.css', true);
-        const css = readAsset('webview-ui/src/assets/out/index.css', true);
-        const js  = readAsset('webview-ui/src/assets/out/index.js', true);
-  const minimalInteractive = `(() => {\n const svg=document.querySelector('svg.callgraph'); if(!svg) return; const g0=svg.querySelector('#graph0'); if(!g0) return; let pan={x:0,y:0,down:false,px:0,py:0}; function apply(){ g0.setAttribute('transform', 'matrix('+scale+' 0 0 '+scale+' '+pan.x+' '+pan.y+')'); } let scale=1; svg.addEventListener('wheel',e=>{ if(!e.ctrlKey) return; e.preventDefault(); const ds=Math.exp(-e.deltaY*0.001); const rect=svg.getBoundingClientRect(); const cx=e.clientX-rect.left; const cy=e.clientY-rect.top; pan.x = cx - (cx - pan.x)*ds; pan.y = cy - (cy - pan.y)*ds; scale*=ds; apply(); }, {passive:false}); svg.addEventListener('mousedown',e=>{ if(e.button!==0) return; pan.down=true; pan.px=e.clientX; pan.py=e.clientY; }); window.addEventListener('mouseup',()=> pan.down=false); window.addEventListener('mousemove',e=>{ if(!pan.down) return; pan.x += e.clientX - pan.px; pan.y += e.clientY - pan.py; apply(); }); function openFile(path,line,char){ try{ if(typeof acquireVsCodeApi==='function'){ acquireVsCodeApi().postMessage({command:'go to definition', path, ln:line||0, col:char||0}); } }catch{} } svg.addEventListener('click',e=>{ let el=e.target; while(el && el instanceof SVGElement && !el.classList.contains('cell') && !el.classList.contains('node')) el=el.parentNode; if(!el) return; if(el.classList.contains('cell')){ const cellId=el.id; const node=el.closest('.node'); const filePath=node && node.getAttribute('data-path'); const m=/^(\\d+):(\\d+)_(\\d+)$/.exec(cellId); if(filePath && m){ openFile(filePath, Number(m[2]), Number(m[3])); } } });})();`;
-  let runtimeInit = js.trim().length ? `${js}\ntry{const svgEl=document.querySelector('.callgraph');if(svgEl&& typeof CallGraph!=='undefined'){const g=new CallGraph(svgEl,null);g.setUpPanZoom();}}catch{}` : minimalInteractive;
-  try {
-    const pathMod = await import('node:path');
-    const urlMod = await import('node:url');
-    const fsMod2 = await import('node:fs');
-    const thisDir = pathMod.dirname(urlMod.fileURLToPath(import.meta.url));
-    const fullJsPath = pathMod.resolve(thisDir,'callgraph-full.js');
-    if (fsMod2.existsSync(fullJsPath)) {
-      const fullJs = fsMod2.readFileSync(fullJsPath,'utf8');
-      if (fullJs.trim().length) runtimeInit = `${fullJs}\ntry{const svgEl=document.querySelector('.callgraph');if(svgEl&&(globalThis as any).CallGraph){const g=new (globalThis as any).CallGraph(svgEl,null);g.setUpPanZoom && g.setUpPanZoom();}}catch(e){console.error(e);}`;
-    } else {
-      const interactionJs = fsMod2.readFileSync(pathMod.resolve(thisDir,'callgraph-interact.js'),'utf8');
-      if (interactionJs.trim().length) runtimeInit = `${interactionJs}\ntry{const svgEl=document.querySelector('.callgraph');if(svgEl&&(globalThis as any).CallGraph){new (globalThis as any).CallGraph(svgEl);}}catch(e){console.error(e);}`;
-    }
-  } catch {}
-        const html = `<!DOCTYPE html><html><head><meta charset=utf-8><title>${he.encode('Crabviz Detailed')}</title><style>${theme}\n${css}</style></head><body>${svg.outerHTML}${ runtimeInit? `<script type=module>${runtimeInit}</script>`:''}</body></html>`;
+  const theme = readAsset('webview-ui/src/styles/graph-theme.css', true)+readAsset('webview-ui/src/styles/svg.css', true);
+  const css = readAsset('webview-ui/src/assets/out/index.css', true);
+  const js  = readAsset('webview-ui/src/assets/out/index.js', true);
+  const runtimeInit = js.trim().length ? `${js}\ntry{const svgEl=document.querySelector('.callgraph');if(svgEl&& typeof CallGraph!=='undefined'){const g=new CallGraph(svgEl,null);g.setUpPanZoom();}}catch{}` : '';
+  // Fallback lightweight pan/zoom if bundled UI script is missing
+  const fallbackRuntime = `(() => {\n  if (typeof window === 'undefined') return;\n  const svg = document.querySelector('svg.callgraph'); if(!svg) return;\n  const graph0 = svg.querySelector('#graph0') || svg;\n  let isDown=false; let lastX=0,lastY=0; let tx=0,ty=0; let scale=1;\n  function apply(){ graph0.setAttribute('transform', 'translate('+tx+','+ty+') scale('+scale+')'); }\n  svg.addEventListener('mousedown', e=>{ if(e.button!==0) return; isDown=true; lastX=e.clientX; lastY=e.clientY; });\n  window.addEventListener('mousemove', e=>{ if(!isDown) return; tx += (e.clientX-lastX); ty += (e.clientY-lastY); lastX=e.clientX; lastY=e.clientY; apply(); });\n  window.addEventListener('mouseup', ()=>{ isDown=false; });\n  svg.addEventListener('wheel', e=>{ e.preventDefault(); const d = e.deltaY>0? 0.9:1.1; const prev=scale; scale=Math.min(8,Math.max(0.1, scale*d)); const rect = svg.getBoundingClientRect(); const cx = e.clientX-rect.left; const cy = e.clientY-rect.top; // zoom about cursor\n    tx = cx - (cx - tx) * (scale/prev); ty = cy - (cy - ty) * (scale/prev); apply(); }, { passive:false });\n})();`;
+        let overlayScript = '';
+        if (overlayInternalEdges && overlayInternalEdges.length) {
+          const payload = JSON.stringify(overlayInternalEdges.map(e=> ({ f: e.from.fileId, fl:e.from.line, fc:e.from.character, t: e.to.fileId, tl:e.to.line, tc:e.to.character, k: e.kind })));
+          // Build script without nested template literal interpolation that confuses TS parser
+          let script = '';
+          script += `<script type=module>\n`;
+          script += `const data=${payload};\n`;
+          script += `function draw(){\n`;
+          script += ` const svg=document.querySelector('svg.callgraph'); if(!svg) return; const NS='http://www.w3.org/2000/svg';\n`;
+          script += ` let grp=svg.querySelector('#internal-overlay'); if(!grp){ grp=document.createElementNS(NS,'g'); grp.id='internal-overlay'; grp.setAttribute('data-layer','internal'); grp.style.pointerEvents='none'; const g0=svg.getElementById('graph0'); if(g0){ g0.appendChild(grp); } }\n`;
+          script += ` // ensure arrow marker\n`;
+          script += ` let defs=svg.querySelector('defs'); if(!defs){ defs=document.createElementNS(NS,'defs'); svg.appendChild(defs);} if(!svg.querySelector('#internalArrow')){ const mk=document.createElementNS(NS,'marker'); mk.id='internalArrow'; mk.setAttribute('orient','auto'); mk.setAttribute('markerWidth','10'); mk.setAttribute('markerHeight','10'); mk.setAttribute('refX','8'); mk.setAttribute('refY','3'); const mp=document.createElementNS(NS,'path'); mp.setAttribute('d','M0,0 L0,6 L9,3 z'); mp.setAttribute('fill','#698b69'); mk.appendChild(mp); defs.appendChild(mk);}\n`;
+          script += ` data.forEach(ed=>{\n`;
+          script += `  const from=document.getElementById(ed.f+':'+ed.fl+'_'+ed.fc);\n`;
+          script += `  const to=document.getElementById(ed.t+':'+ed.tl+'_'+ed.tc);\n`;
+          script += `  if(!from||!to) return;\n`;
+          script += `  const fb=(from).getBBox(); const tb=(to).getBBox();\n`;
+          script += `  const x1=fb.x+fb.width; const y1=fb.y+fb.height/2; const x2=tb.x+tb.width; const y2=tb.y+tb.height/2;\n`;
+          script += `  const fileNode = (from as any).closest('.node'); const nb = fileNode? fileNode.getBBox(): null;\n`;
+          script += `  const downward = y2>=y1;\n`;
+          script += `  let corridor; let leftMode=false;\n`;
+          script += `  if(nb){ if(downward){ corridor = nb.x + nb.width - 6; } else { leftMode=true; corridor = nb.x + 6; } } else { corridor = Math.max(x1,x2)+8; }\n`;
+          script += `  const path=document.createElementNS(NS,'path');\n`;
+          script += `  let d;\n`;
+          script += `  if(Math.abs(y2-y1)<14){ // short hop: small cubic to visually connect rows
+            const cx = leftMode? corridor : corridor; d='M'+x1+','+y1+' C '+cx+','+y1+' '+cx+','+y2+' '+x2+','+y2; }
+          else if(leftMode){ d='M'+x1+','+y1+' L '+(nb? nb.x+nb.width-4 : x1+4)+','+y1+' L '+corridor+','+y1+' L '+corridor+','+y2+' L '+(nb? nb.x+nb.width-4 : x2-4)+','+y2+' L '+x2+','+y2; }
+          else { d='M'+x1+','+y1+' L '+corridor+','+y1+' L '+corridor+','+y2+' L '+x2+','+y2; }\n`;
+          script += `  path.setAttribute('d', d);\n`;
+          script += `  path.setAttribute('stroke','#698b69'); path.setAttribute('fill','none'); path.setAttribute('stroke-width','2'); path.setAttribute('marker-end','url(#internalArrow)'); path.setAttribute('data-internal','1');\n`;
+          script += `  path.classList.add('edge','internal-overlay','internal-call'); grp.appendChild(path);\n`;
+          script += ` });\n`;
+          script += `}\n`;
+          script += `if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', draw); else draw();\n`;
+          script += `</script>`;
+          overlayScript = script;
+        }
+  const html = `<!DOCTYPE html><html><head><meta charset=utf-8><title>${he.encode('Crabviz Detailed')}</title><style>${theme}\n${css}</style></head><body>${svg.outerHTML}${ runtimeInit? `<script type=module>${runtimeInit}</script>`:`<script>${fallbackRuntime}</script>`}${overlayScript}</body></html>`;
+        if (overlayInternalEdges && overlayInternalEdges.length && !argv.quiet) {
+          console.error('[crabviz] overlay script length', overlayScript.length, 'edges', overlayInternalEdges.length);
+        }
         await import('node:fs').then(m=> { m.writeFileSync(resolve(argv.out), html, 'utf8'); });
   if (!argv.quiet) console.log(`Wrote ${resolve(argv.out)} (export/html ui detailed) [run=${runId}]`); else process.stdout.write(resolve(argv.out));
         return;
       }
     }
 
-    const dot    = toDot(gd, argv.simplified);
+    // Optionally filter import edges
+    const filteredGd = argv.hideImports ? { nodes: gd.nodes, edges: gd.edges.filter(e=> e.kind !== 'import' && e.kind !== 'dynamic-import') } : gd;
+    const dot    = toDot(filteredGd, argv.simplified);
+    if (argv.dotOut) {
+      writeFileSync(resolve(String(argv.dotOut)), dot, 'utf8');
+      if (!argv.quiet) console.error(`[crabviz] wrote DOT ${resolve(String(argv.dotOut))}`);
+    }
 
     if (argv.renderer === "export") {
       if (argv.format === "svg") {
@@ -278,7 +432,7 @@ async function main() {
       if (!argv.quiet) console.log(`Wrote ${resolve(argv.out)} (viz/minimal)`); else process.stdout.write(resolve(argv.out));
     }
   } finally {
-    await Promise.allSettled([tsClient.dispose(), pyClient.dispose()]);
+  await Promise.allSettled([tsClient.dispose(), pyClient?.dispose?.()]);
   }
 }
 

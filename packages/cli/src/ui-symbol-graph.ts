@@ -54,56 +54,127 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
     const withLeadingSlash = (p:string)=> (osIsWin && /^[A-Za-z]:\//.test(p) ? '/' + p : p);
     const caseKey = (p:string)=> osIsWin? p.toLowerCase():p;
     const idByCase = new Map<string, number>();
-    for (const [p,id] of idBy) {
-      const n = normalize(p);
-      idByCase.set(caseKey(n), id);
-      const alt = withLeadingSlash(n); if (alt!==n) idByCase.set(caseKey(alt), id);
-      // Windows uppercase drive variant
-      if (osIsWin && /^[A-Za-z]:\//.test(n)) {
-        const up = n[0].toUpperCase() + n.slice(1);
-        idByCase.set(caseKey(up), id);
-        const upAlt = withLeadingSlash(up); if (upAlt!==up) idByCase.set(caseKey(upAlt), id);
+    for (const [p,id] of idBy) idByCase.set(caseKey(p), id);
+  const dedup = new Set<string>();
+  const visitedIncoming = new Set<string>();
+  const visitedOutgoing = new Set<string>();
+  // Caches to avoid duplicate LSP round-trips per symbol anchor
+  const incomingCache = new Map<string, any[]>();
+  const outgoingCache = new Map<string, any[]>();
+  const headKey = (filePath:string, pos:{line:number;character:number}) => `${filePath}:${pos.line}:${pos.character}`;
+    function mapEndpoint(selStart:{line:number; character:number}, rawPath:string){
+      // rawPath may be a URI object or string; ensure we derive a normalized fs path
+      let pathStr = '';
+      try {
+        if (typeof rawPath === 'string' && /:/.test(rawPath) && rawPath.startsWith('file')) {
+          pathStr = URI.parse(rawPath).fsPath;
+        } else if (typeof rawPath === 'string') {
+          // Might already be path-like
+          pathStr = rawPath;
+        } else if ((rawPath as any).path) {
+          pathStr = (rawPath as any).path;
+        }
+      } catch { pathStr = String(rawPath||''); }
+      const path = normalizeUriPath(pathStr);
+      const fileId = idByCase.get(caseKey(path));
+      if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] mapEndpoint raw=${rawPath} -> ${path} fileId=${fileId}`);
+      if (fileId==null) return { fileId: undefined as unknown as number, targetSym: undefined as Symbol|undefined, pos: selStart };
+      const targetSym = findSymbol(fileId, selStart);
+      return { fileId, targetSym, pos: selStart };
+    }
+  const REL_CAP = Number(process.env.CRV_RELATION_CAP||8000);
+  let callableTotal = 0; let prepareTotal = 0; let prepareWithItems = 0; let prepareEmpty = 0;
+  async function processSymbol(f:File, sym:Symbol, depth=0){
+      if (opts.maxDepth !== undefined && opts.maxDepth >= 0 && depth >= opts.maxDepth) return;
+      if (relations.length >= REL_CAP) return;
+  if (!isCallLike(sym.kind)) return; // skip non-callable symbols to reduce traversal noise
+      callableTotal++;
+      // retry prepareCallHierarchy with slight backoff; also try nearby lines
+      const PREP_MAX = Number(process.env.CRV_PREP_MAX||5);
+      const BACKOFF_MS = Number(process.env.CRV_PREP_DELAY||180);
+      let items:any[] = [];
+      for (let attempt=0; attempt<PREP_MAX && !items.length; attempt++) {
+        const lineShift = attempt === 0 ? 0 : Math.min(3, attempt); // try up to 3 lines upwards
+        const startPos = { line: Math.max(0, sym.range.start.line - lineShift), character: sym.range.start.character };
+        try { items = await client.prepareCallHierarchy(f.path, startPos) || []; } catch { /* ignore */ }
+        if (!items.length) await new Promise(r=> setTimeout(r, BACKOFF_MS));
       }
+      prepareTotal++;
+      if (items.length) prepareWithItems++; else prepareEmpty++;
+      if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] prepare ${f.path} line=${sym.range.start.line} got=${items.length}`);
+      const head = items.find((it:any)=> samePos(it.selectionRange?.start, sym.range.start)) || items[0];
+      if (!head) return;
+  await resolveIncoming(head, f, sym, depth);
+  await resolveOutgoing(head, f, sym, depth);
     }
-    const flatByFile = new Map<number, Symbol[]>();
-    for (const f of fileObjs){ const arr:Symbol[]=[]; for (const s of iterateSymbols(f.symbols)) if (isCallLike(s.kind)) arr.push(s); flatByFile.set(f.id, arr); }
-    function findSymbol(fileId:number, pos:{line:number;character:number}): Symbol|undefined {
-      return flatByFile.get(fileId)?.find(s=> s.range.start.line===pos.line && s.range.start.character===pos.character);
-    }
-    const visited = new Set<string>();
-    const dedup = new Set<string>();
-    const REL_CAP = Number(process.env.CRV_RELATION_CAP||8000);
-    // Preload file texts once for position probing
-    const fileTextCache = new Map<number,string>();
-    async function getFileText(f:File){
-      if (!fileTextCache.has(f.id)) {
-        try { fileTextCache.set(f.id, await import('node:fs/promises').then(m=> m.readFile(f.path,'utf8'))); } catch { fileTextCache.set(f.id,''); }
+  async function resolveIncoming(head:any, f:File, sym:Symbol, depth:number){
+      const hk = headKey(f.path, sym.range.start);
+      let incoming:any[] | undefined = incomingCache.get(hk);
+      if (incoming === undefined) {
+        incoming = [];
+        const INC_MAX = Number(process.env.CRV_CALL_MAX||3);
+        for (let attempt=0; attempt<INC_MAX && !incoming.length; attempt++) {
+          try { incoming = await client.incomingCalls(head) || []; } catch { incoming = []; }
+          if (!incoming.length) await new Promise(r=> setTimeout(r, 120));
+        }
+        incomingCache.set(hk, incoming);
       }
-      return fileTextCache.get(f.id)!;
-    }
-    async function probePrepare(file:File, sym:Symbol){
-      // Try original start, lines above (already done), and columns inside definition line to hit identifier token (Python sometimes needs inside name)
-      let items = await client.prepareCallHierarchy(file.path, sym.range.start) || [];
-      if (items.length) return items;
-      // Columns inside line
-      const text = await getFileText(file);
-      const lineText = text.split(/\r?\n/)[sym.range.start.line]||'';
-      for (let c = sym.range.start.character+1; c< Math.min(lineText.length, sym.range.start.character+40); c++){
-        if (/\w/.test(lineText[c])) {
-          items = await client.prepareCallHierarchy(file.path, { line:sym.range.start.line, character:c }) || [];
-          if (items.length) return items;
+      if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] incoming ${incoming.length} for ${f.path}#${sym.range.start.line}`);
+      for (const call of incoming) {
+        const ep = call.from; if (!ep?.uri || !ep.selectionRange?.start) continue;
+        const { fileId, targetSym, pos } = mapEndpoint(ep.selectionRange.start, ep.uri.path||ep.uri);
+        if (fileId==null) continue;
+        const fromLine = targetSym? targetSym.range.start.line : pos.line;
+        const fromChar = targetSym? targetSym.range.start.character : pos.character;
+        const key = `${fileId}:${fromLine}_${fromChar}->${f.id}:${sym.range.start.line}_${sym.range.start.character}`;
+        if (!dedup.has(key)) {
+          dedup.add(key);
+          relations.push({ from:{fileId, line:fromLine, character:fromChar}, to:{fileId:f.id, line:sym.range.start.line, character:sym.range.start.character}, kind:RelationKind.Call, _depth:depth });
+          if (depth>maxDepthSeen) maxDepthSeen = depth;
+        }
+        const visitKey = `in:${fileId}:${fromLine}_${fromChar}`;
+        if (!visitedIncoming.has(visitKey)) {
+          visitedIncoming.add(visitKey);
+          if (targetSym) {
+            const parentFile = fileObjs.find(ff=> ff.id===fileId);
+            if (parentFile) await processSymbol(parentFile, targetSym, depth+1);
+          }
         }
       }
-      // Lines above fallback (already attempted in previous version); also try line below start in case symbol range points to decorators
-      for (let delta of [1,2,3]){
-        const alt = { line: Math.max(0, sym.range.start.line - delta), character: sym.range.start.character };
-        items = await client.prepareCallHierarchy(file.path, alt) || [];
-        if (items.length) return items;
+    }
+    async function resolveOutgoing(head:any, f:File, sym:Symbol, depth:number){
+      const hk = headKey(f.path, sym.range.start);
+      let outgoing:any[] | undefined = outgoingCache.get(hk);
+      if (outgoing === undefined) {
+        outgoing = [];
+        const OUT_MAX = Number(process.env.CRV_CALL_MAX||3);
+        for (let attempt=0; attempt<OUT_MAX && !outgoing.length; attempt++) {
+          try { outgoing = await client.outgoingCalls(head) || []; } catch { outgoing = []; }
+          if (!outgoing.length) await new Promise(r=> setTimeout(r, 120));
+        }
+        outgoingCache.set(hk, outgoing);
       }
-      for (let delta of [1,2]){
-        const alt = { line: sym.range.start.line + delta, character: sym.range.start.character };
-        items = await client.prepareCallHierarchy(file.path, alt) || [];
-        if (items.length) return items;
+      if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] outgoing ${outgoing.length} for ${f.path}#${sym.range.start.line}`);
+      for (const call of outgoing) {
+        const ep = call.to; if (!ep?.uri || !ep.selectionRange?.start) continue;
+        const { fileId, targetSym, pos } = mapEndpoint(ep.selectionRange.start, ep.uri.path||ep.uri);
+        if (fileId==null) continue;
+        const toLine = targetSym? targetSym.range.start.line : pos.line;
+        const toChar = targetSym? targetSym.range.start.character : pos.character;
+        const key = `${f.id}:${sym.range.start.line}_${sym.range.start.character}->${fileId}:${toLine}_${toChar}`;
+        if (!dedup.has(key)) {
+          dedup.add(key);
+          relations.push({ from:{fileId:f.id, line:sym.range.start.line, character:sym.range.start.character}, to:{fileId, line:toLine, character:toChar}, kind:RelationKind.Call, _depth:depth });
+          if (depth>maxDepthSeen) maxDepthSeen = depth;
+        }
+        const visitKey = `out:${fileId}:${toLine}_${toChar}`;
+        if (!visitedOutgoing.has(visitKey)) {
+          visitedOutgoing.add(visitKey);
+          if (targetSym) {
+            const parentFile = fileObjs.find(ff=> ff.id===fileId);
+            if (parentFile) await processSymbol(parentFile, targetSym, depth+1);
+          }
+        }
       }
       return items; // empty
     }
@@ -191,13 +262,8 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
         }
       }
     }
-    for (const f of fileObjs){
-      for (const s of iterateSymbols(f.symbols)) if (isCallLike(s.kind)) await traverseFunc(f.id, s, 0);
-    }
-    if (!process.env.CRV_QUIET) {
-      const cross = relations.filter(r=> r.from.fileId!==r.to.fileId).length;
-      console.error(`[sym] traversal relations=${relations.length} crossFile=${cross}`);
-    }
+    if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] call relations=${callCount} impl relations=${relations.length-callCount} total=${relations.length}`);
+  if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym:stats] callable=${callableTotal} prepareTotal=${prepareTotal} prepareWithItems=${prepareWithItems} prepareEmpty=${prepareEmpty}`);
   }
   // Naive Python fallback (augment even if we already have some relations) to approximate cross-file calls when LSP omits them
   if (!opts.skipCalls && fileObjs.some(f=> /\.py$/i.test(f.path))) {
@@ -346,77 +412,48 @@ function docToSym(s:any, fileId:number, seen:Set<string>): Symbol|undefined {
 }
 function* iterateSymbols(list:Symbol[]): Iterable<Symbol>{ for(const s of list){ yield s; if(s.children.length) yield* iterateSymbols(s.children);} }
 function isCallLike(kind:number){
-  // Restrict to function(12), method(6), constructor(9) only.
-  return kind===12||kind===6||kind===9;
+  // Restrict to canonical callable kinds: function(12), method(6), constructor(9)
+  return kind===12 || kind===6 || kind===9;
 }
 
 // 2. Convert Graph to DOT using same hierarchy helpers as file-level path logic
-type GraphNode = { id:string; dir:string; labelHtml:string; };
-type EdgeSpec = { tail:string; head:string; id:string; tailport?:string; headport?:string; class?:string; };
-
-function symbolToCellDepth(fileId:number, s:Symbol, depth:number, maxDepth:number, collapse:boolean): string|undefined {
-  if (depth>maxDepth) return undefined;
-  const port = `${s.range.start.line}_${s.range.start.character}`;
-  const text = escapeHtml(s.name);
-  const icon = '';
-  if (!s.children.length || depth===maxDepth) {
-    return `<TR><TD PORT="${port}" ID="${fileId}:${port}" HREF="${s.kind}" BGCOLOR="${collapse? 'lightblue':'blue'}">${text}</TD></TR>`;
-  }
-  const child = s.children.map(c=> symbolToCellDepth(fileId,c,depth+1,maxDepth,collapse)).filter(Boolean).join('\n');
-  return `
-    <TR><TD CELLPADDING="0">
-    <TABLE ID="${fileId}:${port}" HREF="${s.kind}" BORDER="0" CELLSPACING="8" CELLPADDING="4" CELLBORDER="0" BGCOLOR="green">
-    <TR><TD PORT="${port}">${text}</TD></TR>
-    ${child}
-    </TABLE>
-    </TD></TR>
-  `;
-}
-
-function collectEdges(rel:Relation[], collapse:boolean, depthByPort:Set<string>, maxDepth:number, parentPortBy:Map<string,string|undefined>): EdgeSpec[] {
-  // Filter out edges whose ports exceed maxDepth (symbolDepth) so we don't reference missing table cells
-  function portKey(fileId:number,line:number,char:number){ return `${fileId}:${line}_${char}`; }
-  const filtered: Relation[] = rel.filter(r=> depthByPort.has(portKey(r.from.fileId,r.from.line,r.from.character)) && depthByPort.has(portKey(r.to.fileId,r.to.line,r.to.character)));
-  if (!collapse) return filtered.map(r=> ({ tail:`${r.from.fileId}`, head:`${r.to.fileId}`, id:`${r.from.fileId}:${r.from.line}_${r.from.character}-${r.to.fileId}:${r.to.line}_${r.to.character}`, tailport:`${r.from.line}_${r.from.character}`, headport:`${r.to.line}_${r.to.character}`, class: r.kind===RelationKind.Impl? 'impl': '' }));
-  const map = new Map<string,EdgeSpec>();
-  for (const r of filtered){
-    const tail = r.from.fileId.toString();
-    const head = r.to.fileId.toString();
-    const cls = r.kind===RelationKind.Impl? 'impl': '';
-    const id = `${tail}:${cls}-${head}:`;
-    if (!map.has(id)) map.set(id,{ tail, head, id, class:cls });
-  }
-  return Array.from(map.values());
-}
-
 export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean, symbolDepth:number = Infinity): string {
+  const cfg = getLayoutConfig();
+  const layout = (cfg as any).symbolLayout || 'table';
+  if ((process.env.CRV_DEBUG||'').includes('layout')) {
+    console.error('[sym] symbolGraphToDot layout=', layout);
+  }
+  if (layout === 'split') {
+    return symbolGraphToDotSplit(graph, symbolDepth);
+  }
+  if ((layout as any) === 'cluster') {
+    return symbolGraphToDotCluster(graph, symbolDepth);
+  }
+  // Legacy table path
   const baseNodes = convertToHierarchy(graph as any) as FileHierNode[];
   const fileById = new Map(graph.files.map(f=> [f.id.toString(), f] as const));
   const depthByPort = new Set<string>();
-  const parentPortBy = new Map<string,string|undefined>();
-  function visitSym(fileId:number, s:Symbol, depth:number, parentFull?:string){
-    const full = `${fileId}:${s.range.start.line}_${s.range.start.character}`;
-    parentPortBy.set(full, parentFull);
-    if (depth <= symbolDepth) depthByPort.add(full);
-    if (s.children.length) for (const c of s.children) visitSym(fileId,c,depth+1,full);
+  function markDepths(fileId:number, syms:Symbol[], depth:number){
+    for (const s of syms){
+      const port = `${fileId}:${s.range.start.line}_${s.range.start.character}`;
+      if (depth <= symbolDepth) depthByPort.add(port);
+      if (s.children.length) markDepths(fileId, s.children, depth+1);
+    }
   }
-  for (const f of graph.files) for (const s of f.symbols) visitSym(f.id,s,1,undefined);
-  const nodes: GraphNode[] = baseNodes.map(n=> {
+  for (const f of graph.files) markDepths(f.id, f.symbols, 1);
+  const nodes: Node[] = baseNodes.map(n=> {
     const f = fileById.get(n.id)!;
-    if (!f.symbols.length || symbolDepth<=0) return { id:n.id, dir:n.dir, labelHtml:n.labelHtml };
-  const headerMatch = /<TABLE[^>]*>(<TR><TD HREF=[^]*?<\/TR>)/.exec(n.labelHtml);
-  // Use raw file path (no leading slash) so click -> open resolves correctly on Windows
-  const rawPath = f.path.replace(/\\/g,'/');
-  const headerRow = headerMatch ? headerMatch[1] : `<TR><TD HREF="${rawPath}" DATA-FULLPATH="${rawPath}" WIDTH="230" BORDER="0" CELLPADDING="6">${escapeHtml(f.path.split(/[/\\]/).pop()||'')}</TD></TR>`;
+    if (!f.symbols.length || symbolDepth<=0) return n as Node;
+    const headerMatch = /<TABLE[^>]*>(<TR><TD HREF=[^]*?<\/TR>)/.exec(n.labelHtml);
+    const headerRow = headerMatch ? headerMatch[1] : `<TR><TD HREF="${f.path}" WIDTH="230" BORDER="0" CELLPADDING="6">${escapeHtml(f.path.split(/[\\/]/).pop()||'')}</TD></TR>`;
     const symRows = f.symbols.map(s=> symbolToCellDepth(f.id,s,1,symbolDepth, collapse)).filter(Boolean).join('\n');
     const rebuilt = `<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="8" CELLPADDING="4">\n${headerRow}\n${symRows}\n<TR><TD CELLSPACING="0" HEIGHT="1" WIDTH="1" FIXEDSIZE="TRUE" STYLE="invis"></TD></TR>\n</TABLE>`;
     return { id:n.id, dir:n.dir, labelHtml:rebuilt };
   });
   const sub = buildSubgraphTree(nodes as unknown as FileHierNode[], '');
-  const edges = collectEdges(graph.relations, collapse, depthByPort, symbolDepth, parentPortBy);
+  const edges = collectEdges(graph.relations, collapse, depthByPort, symbolDepth);
   const out:string[] = [];
   out.push('digraph G {');
-  const cfg = getLayoutConfig();
   out.push(`rankdir=${cfg.rankdir||'LR'};`);
   out.push('ranksep=2.0;');
   out.push('fontsize=16; fontname="Arial";');
@@ -424,7 +461,6 @@ export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean, sy
   out.push('edge [arrowsize=1.5 label=" "];');
   out.push('splines=true;');
   if (sub) emitSubgraphDOT(sub, out, { v:0 }); else nodes.forEach(n=> out.push(`${n.id} [id="${n.id}" label=<${n.labelHtml}> shape=plaintext style=filled]`));
-  const isTB = (cfg.rankdir||'LR') === 'TB';
   for (const e of edges){
     // Ensure edge id matches webview pattern: fromCell-toCell when ports present
     let edgeId = e.id;
@@ -452,21 +488,226 @@ export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean, sy
     out.push(`${e.tail} -> ${e.head} [${attrs.join(' ')} label=" "];`);
   }
   out.push('}');
+  const dot = out.join('\n');
+  if ((process.env.CRV_DEBUG||'').includes('dot')) console.error('[sym] table DOT sample', dot.slice(0,1200));
+  return dot;
+}
+
+function symbolGraphToDotSplit(graph:Graph, symbolDepth:number): string {
+  const cfg = getLayoutConfig();
+  const out:string[] = [];
+  out.push('digraph G {');
+  out.push(`rankdir=${cfg.rankdir||'LR'};`);
+  out.push('ranksep=2.0;');
+  // Mitigate pathplan triangulation failures with dense intra-file edges
+  out.push('splines=true; overlap=false; concentrate=true;');
+  out.push('fontsize=16; fontname="Arial";');
+  out.push('node [fontsize=16 fontname="Arial" shape=plaintext style=filled];');
+  out.push('edge [arrowsize=1.5 label=" "];');
+  // Build per-file clusters with hub + symbol nodes
+  const fileHubId = (fId:number)=> `f${fId}_hub`;
+  const symNodeId = (fId:number, s:Symbol)=> `f${fId}_l${s.range.start.line}c${s.range.start.character}`;
+  function walkSymbols(fId:number, syms:Symbol[], depth:number, acc:Symbol[]): void {
+    for (const s of syms){
+      acc.push(s);
+      if (s.children.length && depth < symbolDepth) walkSymbols(fId, s.children, depth+1, acc);
+    }
+  }
+  for (const f of graph.files){
+    out.push(`subgraph cluster_file_${f.id} {`);
+    out.push(`label="${escapeLabel(f.path.split(/[\\/]/).pop()||'')}";`);
+    out.push('style=rounded;');
+    out.push(`${fileHubId(f.id)} [id="${fileHubId(f.id)}" label=<${escapeHtml(f.path.split(/[\\/]/).pop()||'')} > shape=plaintext class="fileHub" ];`);
+    if (symbolDepth>0){
+      const collected:Symbol[] = [];
+      walkSymbols(f.id, f.symbols, 1, collected);
+      for (const s of collected){
+        const nodeId = symNodeId(f.id, s);
+        const text = escapeHtml(s.name);
+        const cls = symbolKindClass(s.kind);
+        out.push(`${nodeId} [id="${nodeId}" label=<${text}> shape=plaintext class="cell ${cls}" ];`);
+      }
+    }
+    out.push('}');
+  }
+  // Emit edges: map relations to hub or symbol nodes
+  for (const r of graph.relations){
+    const sameFile = r.from.fileId === r.to.fileId;
+    const fromSym = graph.files.find(f=> f.id===r.from.fileId)?.symbols && findSymbolByPos(graph, r.from.fileId, r.from.line, r.from.character);
+    const toSym   = graph.files.find(f=> f.id===r.to.fileId)?.symbols && findSymbolByPos(graph, r.to.fileId, r.to.line, r.to.character);
+    const fromId = fromSym ? symNodeId(r.from.fileId, fromSym) : fileHubId(r.from.fileId);
+    const toId   = toSym   ? symNodeId(r.to.fileId, toSym)     : fileHubId(r.to.fileId);
+    if (fromId === toId) continue; // ignore degenerate
+    const cls = (r as any).kind===RelationKind.Impl ? 'impl' : ((r as any).provenance && (r as any).provenance.startsWith('static-py') ? 'static': undefined);
+    const id = `${fromId}-${toId}`;
+    out.push(`${fromId} -> ${toId} [id="${id}"${cls?` class="${cls}"`:''} label=" "];`);
+    // If same-file and hubs involved only (e.g., import self), skip (rare)
+  }
+  out.push('}');
+  const dot = out.join('\n');
+  if ((process.env.CRV_DEBUG||'').includes('dot')) console.error('[sym] split DOT sample', dot.slice(0,1200));
+  return dot;
+}
+
+function symbolGraphToDotCluster(graph:Graph, symbolDepth:number): string {
+  const cfg = getLayoutConfig();
+  const out:string[] = [];
+  out.push('digraph G {');
+  out.push(`rankdir=${cfg.rankdir||'LR'};`);
+  out.push('ranksep=2.0;');
+  out.push('nodesep=0.4;');
+  out.push('fontsize=16; fontname="Arial";');
+  out.push('node [fontsize=16 fontname="Arial" shape=plaintext style=filled];');
+  out.push('edge [arrowsize=1.2 label=" "];');
+  const headerId = (fId:number)=> `f${fId}_hdr`;
+  const symNodeId = (fId:number, s:Symbol)=> `f${fId}_l${s.range.start.line}c${s.range.start.character}`;
+  function gather(f:File): Symbol[]{
+    const acc:Symbol[]=[]; const stack=[...f.symbols];
+    while(stack.length){ const s=stack.shift()!; acc.push(s); if(s.children.length && acc.length<symbolDepth*500) stack.unshift(...s.children); }
+    return acc;
+  }
+  for (const f of graph.files){
+    out.push(`subgraph cluster_file_${f.id} {`);
+    out.push('style=rounded;');
+    out.push(`label="${escapeLabel(f.path.split(/[\\/]/).pop()||'')}";`);
+    out.push(`${headerId(f.id)} [id="${headerId(f.id)}" label=<${escapeHtml(f.path.split(/[\\/]/).pop()||'')} > shape=plaintext class="fileHub" ];`);
+    if (symbolDepth>0){
+      const list = gather(f).filter(()=> true);
+      // vertical order: keep original order by line number
+      list.sort((a,b)=> a.range.start.line - b.range.start.line);
+      let prev:string|undefined;
+      for (const s of list){
+        const id = symNodeId(f.id,s);
+        const cls = symbolKindClass(s.kind);
+        const label = `<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4"><TR><TD>${escapeHtml(s.name)}</TD></TR></TABLE>`;
+        out.push(`${id} [id="${id}" label=<${label}> shape=plaintext class="cell ${cls}" ];`);
+        // Removed invisible ordering edge to avoid suppressing real call edges between same nodes
+        prev = id;
+      }
+    }
+    out.push('}');
+  }
+  // Edges
+  for (const r of graph.relations){
+    const fromSym = findSymbolByPos(graph, r.from.fileId, r.from.line, r.from.character);
+    const toSym = findSymbolByPos(graph, r.to.fileId, r.to.line, r.to.character);
+    const fromId = fromSym? symNodeId(r.from.fileId, fromSym) : headerId(r.from.fileId);
+    const toId = toSym? symNodeId(r.to.fileId, toSym) : headerId(r.to.fileId);
+    if (fromId===toId) continue;
+    const cls = (r as any).kind===RelationKind.Impl ? 'impl' : ((r as any).provenance && (r as any).provenance.startsWith('static-py') ? 'static': undefined);
+    out.push(`${fromId} -> ${toId} [id="${fromId}-${toId}"${cls?` class="${cls}"`:''}];`);
+  }
+  out.push('}');
   return out.join('\n');
 }
 
-// Backwards-compatible wrapper expected by cli.ts
-export async function renderSymbolGraph(graph:Graph, root:string, collapse:boolean, symbolDepth:number){
-  const dot = symbolGraphToDot(graph, root, collapse, symbolDepth);
-  // Ensure DOMParser available or fallback to renderString
-  if (!(globalThis as any).DOMParser) {
-    try {
-      const { JSDOM } = require('jsdom');
-      const { window } = new JSDOM('<!doctype html><html><body></body></html>');
-      (globalThis as any).window = window;
-      (globalThis as any).document = window.document;
-      (globalThis as any).DOMParser = window.DOMParser;
-    } catch { /* ignore */ }
+function escapeLabel(s:string){ return s.replace(/"/g,'\\"'); }
+function symbolKindClass(k:number){ switch(k){ case 12:return 'function'; case 6:return 'method'; case 9:return 'constructor'; case 11:return 'interface'; case 5:return 'class'; case 10:return 'enum'; case 8:return 'field'; case 7:return 'property'; default:return ''; } }
+function findSymbolByPos(graph:Graph, fileId:number, line:number, ch:number): Symbol|undefined {
+  const f = graph.files.find(ff=> ff.id===fileId); if(!f) return undefined;
+  // Collect (cached) flattened symbol list for the file
+  let flat: Symbol[] | undefined = (f as any)._flatSyms;
+  if (!flat) {
+    flat = [];
+    const stack:Symbol[] = [...f.symbols];
+    while(stack.length){ const s = stack.pop()!; flat.push(s); if (s.children.length) stack.push(...s.children); }
+    (f as any)._flatSyms = flat;
+  }
+  // 1. Exact line + character match
+  let exact = flat.find(s=> s.range.start.line===line && s.range.start.character===ch);
+  if (exact) return exact;
+  // 2. Any symbol starting at same line (ignore character differences caused by indentation / LSP variance)
+  const sameLine = flat.filter(s=> s.range.start.line===line);
+  if (sameLine.length === 1) return sameLine[0];
+  if (sameLine.length > 1) {
+    // Prefer one with closest character distance
+    sameLine.sort((a,b)=> Math.abs(a.range.start.character-ch) - Math.abs(b.range.start.character-ch));
+    return sameLine[0];
+  }
+  // 3. Enclosing range (selectionRange may point inside a function body for some servers)
+  const enclosing = flat.filter(s=> s.range.start.line <= line && s.range.end.line >= line);
+  if (enclosing.length === 1) return enclosing[0];
+  if (enclosing.length > 1) {
+    // Pick the smallest span (most specific)
+    enclosing.sort((a,b)=> (a.range.end.line - a.range.start.line) - (b.range.end.line - b.range.start.line));
+    return enclosing[0];
+  }
+  return undefined;
+}
+
+// Types for conversion
+interface Node { id:string; dir:string; labelHtml:string; }
+// (Subgraph shape reused via buildSubgraphTree from ui-file-graph)
+interface Edge { tail:string; head:string; id:string; tailport?:string; headport?:string; class?:string; }
+
+// (file-level node construction reused instead of custom implementation)
+function symbolToCell(fileId:number, s:Symbol): string {
+  // Mirror webview-ui/src/graph/graphviz.ts symbol2cell logic (icons + nested tables)
+  const text = escapeHtml(s.name);
+  const port = `${s.range.start.line}_${s.range.start.character}`;
+  const href = `HREF="${s.kind}"`;
+  let icon = '';
+  switch (s.kind) {
+    case 5: icon = 'C'; break; // CLASS
+    case 23: icon = 'S'; break; // STRUCT
+    case 10: icon = 'E'; break; // ENUM
+    case 26: icon = 'T'; break; // TYPE_PARAMETER
+    case 8: icon = 'f'; break; // FIELD
+    case 7: icon = 'p'; break; // PROPERTY
+    default: break;
+  }
+  if (icon.length>0) icon = `<B>${icon}</B>  `;
+  const baseId = `${fileId}:${port}`;
+  if (!s.children.length) {
+    return `<TR><TD PORT="${port}" ID="${baseId}" ${href} BGCOLOR="blue">${icon}${text}</TD></TR>`;
+  }
+  return `<TR><TD CELLPADDING="0"><TABLE ID="${baseId}" ${href} BORDER="0" CELLSPACING="8" CELLPADDING="4" CELLBORDER="0" BGCOLOR="green"><TR><TD PORT="${port}">${icon}${text}</TD></TR>${s.children.map(c=>symbolToCell(fileId,c)).join('\n')}</TABLE></TD></TR>`;
+}
+// Depth-limited variant
+function symbolToCellDepth(fileId:number, s:Symbol, depth:number, maxDepth:number, flat:boolean): string | '' {
+  const text = escapeHtml(s.name);
+  const port = `${s.range.start.line}_${s.range.start.character}`;
+  const href = `HREF="${s.kind}"`;
+  let icon = '';
+  switch (s.kind) {
+    case 5: icon = 'C'; break; case 23: icon='S'; break; case 10: icon='E'; break; case 26: icon='T'; break; case 8: icon='f'; break; case 7: icon='p'; break; default: break;
+  }
+  if (icon.length>0) icon = `<B>${icon}</B>  `;
+  const baseId = `${fileId}:${port}`;
+  // Flat mode (collapsed view) always renders as single row (no nested tables)
+  if (flat) {
+    return `<TR><TD PORT="${port}" ID="${baseId}" ${href} BGCOLOR="blue">${icon}${text}</TD></TR>`;
+  }
+  if (!s.children.length || depth>=maxDepth) {
+    return `<TR><TD PORT="${port}" ID="${baseId}" ${href} BGCOLOR="blue">${icon}${text}</TD></TR>`;
+  }
+  const childRows = s.children.map(c=> symbolToCellDepth(fileId,c,depth+1,maxDepth,false)).filter(Boolean).join('\n');
+  return `<TR><TD CELLPADDING="0"><TABLE ID="${baseId}" ${href} BORDER="0" CELLSPACING="8" CELLPADDING="4" CELLBORDER="0" BGCOLOR="green"><TR><TD PORT="${port}">${icon}${text}</TD></TR>${childRows}</TABLE></TD></TR>`;
+}
+// Removed local tree + prefix implementations in favor of reuse.
+function collectEdges(rel:Relation[], collapse:boolean, depthPorts:Set<string>, symbolDepth:number):Edge[]{
+  if(!collapse){
+    return rel.filter(r=> {
+      if (symbolDepth===Infinity) return true;
+      const fromOk = depthPorts.has(`${r.from.fileId}:${r.from.line}_${r.from.character}`);
+      const toOk = depthPorts.has(`${r.to.fileId}:${r.to.line}_${r.to.character}`);
+      return fromOk && toOk;
+  }).map(r=> ({ tail:`${r.from.fileId}`, head:`${r.to.fileId}`, id:`${r.from.fileId}:${r.from.line}_${r.from.character}-${r.to.fileId}:${r.to.line}_${r.to.character}`, tailport:`${r.from.line}_${r.from.character}`, headport:`${r.to.line}_${r.to.character}`, class: r.kind===RelationKind.Impl?'impl': (r.provenance&& r.provenance.startsWith('static-py') ? 'static': undefined) }));
+  }
+  const m=new Map<string,Edge>();
+  for(const r of rel){ const tail = r.from.fileId.toString(); const head = r.to.fileId.toString(); const cls = r.kind===RelationKind.Impl?'impl': (r.provenance&& r.provenance.startsWith('static-py') ? 'static': undefined); const id=`${tail}:${cls||''}-${head}:`; if(!m.has(id)) m.set(id,{tail,head,id, class:cls}); }
+  return Array.from(m.values());
+}
+
+// 3. Render DOT to SVG and post-process like ui-file-graph.ts (reuse its postProcess with slight extension for cells)
+export async function renderSymbolGraph(graph:Graph, root:string, collapse:boolean, symbolDepth:number=Infinity): Promise<SVGSVGElement> {
+  if (typeof (globalThis as any).document === 'undefined') {
+    const { JSDOM } = await import('jsdom');
+    const { window } = new JSDOM('<!doctype html><html><body></body></html>');
+    Object.assign(globalThis, { window, document: window.document });
+    if (!(globalThis as any).DOMParser && (window as any).DOMParser) {
+      (globalThis as any).DOMParser = (window as any).DOMParser;
+    }
   }
   const viz = await vizInstance();
   try {

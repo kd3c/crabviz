@@ -4,8 +4,8 @@ import { instance as vizInstance } from '@viz-js/viz';
 import { splitDirectory, commonAncestorPath, escapeHtml } from './ui-utils.js';
 
 // Layout configuration (shared with symbol graph rendering)
-export interface LayoutConfig { filesPerRow?: number; rankdir?: 'LR' | 'TB'; }
-let layoutConfig: LayoutConfig = { filesPerRow: 0, rankdir: 'LR' };
+export interface LayoutConfig { filesPerRow?: number; rankdir?: 'LR' | 'TB'; rootGrid?: { cols:number; rows:number; raw:string }; rootPaths?: string[]; symbolLayout?: 'table' | 'split' | 'cluster'; }
+let layoutConfig: LayoutConfig = { filesPerRow: 0, rankdir: 'LR', rootGrid: undefined, rootPaths: [], symbolLayout: 'split' };
 export function setLayoutConfig(cfg: LayoutConfig){ layoutConfig = { ...layoutConfig, ...cfg }; }
 export function getLayoutConfig(): LayoutConfig { return layoutConfig; }
 
@@ -138,6 +138,21 @@ function graphToDot(graph:Graph, root:string, collapse:boolean): string {
   if (sub) emitSubgraphDOT(sub, out, { v:0 });
   else {
     for (const n of nodes) out.push(`${n.id} [id="${n.id}" label=<${n.labelHtml}> shape=plaintext style=filled]`);
+  }
+  // Phase L1: basic horizontal placement of root clusters (files whose path starts with one of provided rootPaths)
+  if (layoutConfig.rootGrid && layoutConfig.rootGrid.cols > 1 && layoutConfig.rootPaths && layoutConfig.rootPaths.length > 1) {
+    // Identify top-level cluster representative nodes: choose first node within each root (if any)
+    const rootReps: string[] = [];
+    const norm = (p:string)=> p.replace(/\\/g,'/');
+    const rootsNorm = Array.from(new Set(layoutConfig.rootPaths.map(norm))).sort();
+    for (const r of rootsNorm) {
+      const rep = nodes.find(n=> norm(graph.files[parseInt(n.id,10)]?.path||'').startsWith(r.replace(/\\/g,'/')));
+      if (rep) rootReps.push(rep.id);
+    }
+    if (rootReps.length > 1) {
+      // Simple: enforce same rank for all representatives to line up clusters horizontally.
+      out.push(`{ rank=same; ${rootReps.join(' ')} }`);
+    }
   }
   for (const e of edges) {
     // edge id formatted as tailCell-headCell similar to UI (we only have file-level cells)

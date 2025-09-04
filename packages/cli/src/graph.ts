@@ -45,10 +45,25 @@ export function toDot(gd: GraphData, simplified = false): string {
   }
 
   const nodes = g.nodes().map((id: string) => `  "${id}"`);
-  const edges = g.edges().map((e: { v: string; w: string }) => `  "${e.v}" -> "${e.w}"`);
+  // Build a lookup for original edge kinds (first occurrence) for styling
+  const kindMap = new Map<string,string>();
+  for (const e of gd.edges) {
+    const k = `${e.from}\u0000${e.to}`;
+    if (!kindMap.has(k)) kindMap.set(k, e.kind);
+  }
+  const edges = g.edges().map((e: { v: string; w: string }) => {
+    const k = kindMap.get(`${e.v}\u0000${e.w}`) || 'import';
+    let attrs = '';
+    if (k === 'call') attrs = ' [color=blue,penwidth=2]';
+    else if (k === 'dynamic-import') attrs = ' [style=dashed,color=gray50]';
+    else if (k === 'import') attrs = ' [color=gray60]';
+    return `  "${e.v}" -> "${e.w}"${attrs}`;
+  });
 
   return `digraph G {
   rankdir=LR;
+  splines=true;
+  overlap=false;
 ${nodes.join("\n")}
 ${edges.length ? "\n" : ""}${edges.join("\n")}
 }

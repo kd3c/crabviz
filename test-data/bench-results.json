@@ -1,0 +1,103 @@
+{
+  "roots": [
+    "^C:/Git/python/TM^ Azure^ Functions^ Instance/Task^ Management^ Azure^ Functions^ Instance/Common^",
+    "^C:/Git/python/TM^ Azure^ Functions^ Instance/Task^ Management^ Azure^ Functions^ Instance/ConnectedProduction/FilterRun^"
+  ],
+  "repeats": 2,
+  "results": [
+    {
+      "workers": 1,
+      "iter": 0,
+      "elapsedMs": 85.7793,
+      "fileCount": 0,
+      "edgeCount": 0,
+      "unresolved": 0,
+      "throughput": 0
+    },
+    {
+      "workers": 1,
+      "iter": 1,
+      "elapsedMs": 91.2778,
+      "fileCount": 0,
+      "edgeCount": 0,
+      "unresolved": 0,
+      "throughput": 0
+    },
+    {
+      "workers": 2,
+      "iter": 0,
+      "elapsedMs": 86.4079,
+      "fileCount": 0,
+      "edgeCount": 0,
+      "unresolved": 0,
+      "throughput": 0
+    },
+    {
+      "workers": 2,
+      "iter": 1,
+      "elapsedMs": 88.0025,
+      "fileCount": 0,
+      "edgeCount": 0,
+      "unresolved": 0,
+      "throughput": 0
+    },
+    {
+      "workers": 4,
+      "iter": 0,
+      "elapsedMs": 80.5594,
+      "fileCount": 0,
+      "edgeCount": 0,
+      "unresolved": 0,
+      "throughput": 0
+    },
+    {
+      "workers": 4,
+      "iter": 1,
+      "elapsedMs": 96.3636,
+      "fileCount": 0,
+      "edgeCount": 0,
+      "unresolved": 0,
+      "throughput": 0
+    },
+    {
+      "workers": 8,
+      "iter": 0,
+      "elapsedMs": 83.9036,
+      "fileCount": 0,
+      "edgeCount": 0,
+      "unresolved": 0,
+      "throughput": 0
+    },
+    {
+      "workers": 8,
+      "iter": 1,
+      "elapsedMs": 91.6871,
+      "fileCount": 0,
+      "edgeCount": 0,
+      "unresolved": 0,
+      "throughput": 0
+    }
+  ],
+  "summary": [
+    {
+      "workers": 1,
+      "avgMs": 88.52855,
+      "avgThroughput": 0
+    },
+    {
+      "workers": 2,
+      "avgMs": 87.20519999999999,
+      "avgThroughput": 0
+    },
+    {
+      "workers": 4,
+      "avgMs": 88.4615,
+      "avgThroughput": 0
+    },
+    {
+      "workers": 8,
+      "avgMs": 87.79535,
+      "avgThroughput": 0
+    }
+  ]
+}

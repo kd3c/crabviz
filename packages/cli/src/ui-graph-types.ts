@@ -33,9 +33,11 @@ export interface Relation {
   from: GlobalPosition;
   to: GlobalPosition;
   kind: RelationKind;
+  provenance?: string; // e.g., 'static-py'
 }
 
 export interface Graph {
   files: File[];
   relations: Relation[];
+  metrics?: Record<string, unknown>; // optional diagnostic / provenance metrics
 }
