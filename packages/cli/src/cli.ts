@@ -39,7 +39,6 @@ type Args = {
 };
 
 async function main() {
-  const runId = Date.now().toString(36);
   const argv = (await yargs(hideBin(process.argv))
     .option("roots", { type: "array", demandOption: true })
     .option("out", { type: "string", demandOption: true })
@@ -135,8 +134,8 @@ async function main() {
         // Determine effective depth: if -1 and simplified -> 0 (files only), if -1 and detailed -> unlimited
         const effectiveSymbolDepthSimplified = symbolDepthFlag >= 0 ? symbolDepthFlag : 0;
         const effectiveSymbolDepthDetailed   = symbolDepthFlag >= 0 ? symbolDepthFlag : Infinity;
-  const fileIds = gd.nodes.map(n => n.id);
-  if (!fileIds.length) { console.error(`[crabviz:${runId}] No files discovered for ui export (roots searched=${roots.length}).`); process.exit(1); }
+      const fileIds = gd.nodes.map(n => n.id);
+      if (!fileIds.length) { console.error('No files discovered for ui export.'); process.exit(1); }
       if (argv.simplified) {
         console.error('Building simplified (collapsed) graph with call relations (multi-language)...');
         // Partition files by extension for multi-language LSP usage
@@ -211,24 +210,7 @@ async function main() {
     const theme = readAsset('webview-ui/src/styles/graph-theme.css', true)+readAsset('webview-ui/src/styles/svg.css', true);
     const css = readAsset('webview-ui/src/assets/out/index.css', true);
     const js  = readAsset('webview-ui/src/assets/out/index.js', true);
-  const minimalInteractive = `(() => {\n const svg=document.querySelector('svg.callgraph'); if(!svg) return; const g0=svg.querySelector('#graph0'); if(!g0) return; let pan={x:0,y:0,down:false,px:0,py:0}; function apply(){ g0.setAttribute('transform', 'matrix('+scale+' 0 0 '+scale+' '+pan.x+' '+pan.y+')'); } let scale=1; svg.addEventListener('wheel',e=>{ if(!e.ctrlKey) return; e.preventDefault(); const ds=Math.exp(-e.deltaY*0.001); const rect=svg.getBoundingClientRect(); const cx=e.clientX-rect.left; const cy=e.clientY-rect.top; pan.x = cx - (cx - pan.x)*ds; pan.y = cy - (cy - pan.y)*ds; scale*=ds; apply(); }, {passive:false}); svg.addEventListener('mousedown',e=>{ if(e.button!==0) return; pan.down=true; pan.px=e.clientX; pan.py=e.clientY; }); window.addEventListener('mouseup',()=> pan.down=false); window.addEventListener('mousemove',e=>{ if(!pan.down) return; pan.x += e.clientX - pan.px; pan.y += e.clientY - pan.py; pan.px=e.clientX; pan.py=e.clientY; apply(); }); function openFile(path,line,char){ try{ if(typeof acquireVsCodeApi==='function'){ acquireVsCodeApi().postMessage({command:'go to definition', path, ln:line||0, col:char||0}); } }catch{} } svg.addEventListener('click',e=>{ let el=e.target; while(el && el instanceof SVGElement && !el.classList.contains('cell') && !el.classList.contains('node')) el=el.parentNode; if(!el) return; if(el.classList.contains('cell')){ const cellId=el.id; const node=el.closest('.node'); const filePath=node && node.getAttribute('data-path'); const m=/^(\\d+):(\\d+)_(\\d+)$/.exec(cellId); if(filePath && m){ openFile(filePath, Number(m[2]), Number(m[3])); } } });})();`;
-  let runtimeInit = js.trim().length ? `${js}\ntry{const svgEl=document.querySelector('.callgraph');if(svgEl&& typeof CallGraph!=='undefined'){const g=new CallGraph(svgEl,null);g.setUpPanZoom();}}catch{}` : minimalInteractive;
-  // Override with internal interaction script if present
-  try {
-    const pathMod = await import('node:path');
-    const urlMod = await import('node:url');
-    const fsMod2 = await import('node:fs');
-    const thisDir = pathMod.dirname(urlMod.fileURLToPath(import.meta.url));
-    // Prefer full parity script if present
-    const fullJsPath = pathMod.resolve(thisDir,'callgraph-full.js');
-    if (fsMod2.existsSync(fullJsPath)) {
-      const fullJs = fsMod2.readFileSync(fullJsPath,'utf8');
-      if (fullJs.trim().length) runtimeInit = `${fullJs}\ntry{const svgEl=document.querySelector('.callgraph');if(svgEl&&(globalThis as any).CallGraph){const g=new (globalThis as any).CallGraph(svgEl,null);g.setUpPanZoom && g.setUpPanZoom();}}catch(e){console.error(e);}`;
-    } else {
-      const interactionJs = fsMod2.readFileSync(pathMod.resolve(thisDir,'callgraph-interact.js'),'utf8');
-      if (interactionJs.trim().length) runtimeInit = `${interactionJs}\ntry{const svgEl=document.querySelector('.callgraph');if(svgEl&&(globalThis as any).CallGraph){new (globalThis as any).CallGraph(svgEl);}}catch(e){console.error(e);}`;
-    }
-  } catch {}
+    const runtimeInit = js.trim().length ? `${js}\ntry{const svgEl=document.querySelector('.callgraph');if(svgEl&& typeof CallGraph!=='undefined'){const g=new CallGraph(svgEl,null);g.setUpPanZoom();}}catch{}` : '';
     const html = `<!DOCTYPE html><html><head><meta charset=utf-8><title>${he.encode('Crabviz — Simplified')}</title><style>${theme}\n${css}</style></head><body>${svg.outerHTML}${ runtimeInit? `<script type=module>${runtimeInit}</script>`:''}</body></html>`;
         await import('node:fs').then(m=> { m.writeFileSync(resolve(argv.out), html, 'utf8'); });
   if (!argv.quiet) console.log(`Wrote ${resolve(argv.out)} (export/html ui simplified collapsed)`); else process.stdout.write(resolve(argv.out));
@@ -269,7 +251,7 @@ async function main() {
     }
   }
   // Reuse existing file-level import edges (gd.edges) so relationships (arrows) appear like UI.
-  if (gd.edges?.length && showCallsMode === 'file') {
+  if (gd.edges?.length) {
     const idIndex = new Map(symGraph.files.map(f=> [f.path.replace(/\\/g,'/'), f.id] as const));
     const added = new Set<string>();
     for (const e of gd.edges) {
@@ -404,7 +386,7 @@ async function main() {
           console.error('[crabviz] overlay script length', overlayScript.length, 'edges', overlayInternalEdges.length);
         }
         await import('node:fs').then(m=> { m.writeFileSync(resolve(argv.out), html, 'utf8'); });
-  if (!argv.quiet) console.log(`Wrote ${resolve(argv.out)} (export/html ui detailed) [run=${runId}]`); else process.stdout.write(resolve(argv.out));
+  if (!argv.quiet) console.log(`Wrote ${resolve(argv.out)} (export/html ui detailed)`); else process.stdout.write(resolve(argv.out));
         return;
       }
     }

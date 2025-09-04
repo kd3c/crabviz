@@ -1,7 +1,6 @@
 import { LspClient } from './lsp-manager.js';
 import { Graph, File, Symbol, Relation, RelationKind } from './ui-graph-types.js';
 import { instance as vizInstance } from '@viz-js/viz';
-import { applyTransform } from './ui-svg-transform.js';
 import { escapeHtml } from './ui-utils.js';
 import { convertToHierarchy, buildSubgraphTree, emitSubgraphDOT, HierNode as FileHierNode, getLayoutConfig } from './ui-file-graph.js';
 // (We previously attempted to use convertUiGraph + viz.renderSVGElement for parity, but
@@ -45,14 +44,36 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
   const relations: (Relation & {_depth?:number})[] = [];
   let maxDepthSeen = 0;
   if (!opts.skipCalls && !opts.collapse) {
-    const osIsWin = process.platform==='win32';
-    const normalize = (p:string)=> {
-      let n = p.replace(/\\/g,'/');
-      if (osIsWin && /^\/[A-Za-z]:\//.test(n)) n = n.slice(1); // unify /C:/path -> C:/path
-      return n;
+    // Build quick lookup for symbol by file -> list (flattened) for range matching
+    const flatByFile = new Map<number, Symbol[]>();
+    for (const f of fileObjs) {
+      const arr: Symbol[] = [];
+      for (const s of iterateSymbols(f.symbols)) arr.push(s);
+      flatByFile.set(f.id, arr);
+    }
+    // Helper: find symbol in file covering position or matching start
+    function findSymbol(fileId:number, pos:{line:number; character:number}): Symbol|undefined {
+      const list = flatByFile.get(fileId); if (!list) return undefined;
+      // Prefer symbol whose range encloses pos
+      let best: Symbol|undefined;
+      for (const s of list) {
+        const r = s.range; if (!r) continue;
+        if (r.start.line <= pos.line && r.end.line >= pos.line) {
+          if (r.start.line === pos.line && r.start.character === pos.character) return s; // exact match fast exit
+          best = best || s;
+        }
+      }
+      if (best) return best;
+      // fallback exact start line only
+      return list.find(s=> s.range.start.line === pos.line);
+    }
+    const osIsWin = process.platform === 'win32';
+    const normalizeUriPath = (p:string)=> {
+      // LSP may return like /c:/path...; remove leading slash if windows drive
+      if (osIsWin && /^\/[a-zA-Z]:\//.test(p)) return p.slice(1).replace(/\\/g,'/');
+      return p.replace(/\\/g,'/');
     };
-    const withLeadingSlash = (p:string)=> (osIsWin && /^[A-Za-z]:\//.test(p) ? '/' + p : p);
-    const caseKey = (p:string)=> osIsWin? p.toLowerCase():p;
+    const caseKey = (p:string)=> osIsWin ? p.toLowerCase() : p;
     const idByCase = new Map<string, number>();
     for (const [p,id] of idBy) idByCase.set(caseKey(p), id);
   const dedup = new Set<string>();
@@ -176,199 +197,54 @@ export async function buildSymbolGraph(files:string[], client:LspClient, opts:Bu
           }
         }
       }
-      return items; // empty
     }
-    async function traverseFunc(fileId:number, sym:Symbol, depth:number){
-      if (opts.maxDepth!=null && opts.maxDepth>=0 && depth>opts.maxDepth) return;
-      const file = fileObjs.find(f=> f.id===fileId); if(!file) return;
-      const key = `${fileId}:${sym.range.start.line}_${sym.range.start.character}`;
-      if (visited.has(key)) return; visited.add(key);
-      let items = await probePrepare(file, sym);
-      for (const item of items){
-  const incoming = await client.incomingCalls(item) || [];
-        for (const call of incoming){
-          const ep = call.from; if (!ep?.uri || !ep.selectionRange?.start) continue;
-          let srcFileId: number | undefined;
+    for (const f of fileObjs) {
+      for (const sym of iterateSymbols(f.symbols)) {
+        if (relations.length >= REL_CAP) break;
+        await processSymbol(f, sym, 0);
+      }
+      if (relations.length >= REL_CAP) break;
+    }
+    const callCount = relations.length;
+    // Interface implementation edges (Impl)
+    if (opts.includeImpl !== false) {
+      for (const f of fileObjs) {
+      for (const sym of iterateSymbols(f.symbols)) {
+        if (sym.kind !== 11 /* interface */) continue;
+        // Query implementations
+        let impls = await client.implementations(f.path, sym.range.start) || [];
+        if (impls && !Array.isArray(impls)) impls = [impls];
+        if (!impls.length) continue;
+        for (const loc of impls) {
           try {
-            let uriStr: string;
-            if (typeof ep.uri === 'string') uriStr = ep.uri; else if (ep.uri?.path) uriStr = ep.uri.path; else uriStr = String(ep.uri);
-            if (/^file:\/\//i.test(uriStr)) {
-              const parsed = URI.parse(uriStr);
-              const fsPath = parsed.fsPath; // native path
-              const norm = normalize(fsPath);
-              for (const v of [norm, withLeadingSlash(norm)]) { const id = idByCase.get(caseKey(v)); if (id!=null){ srcFileId = id; break; } }
-            } else {
-              let raw = uriStr;
-              try { raw = decodeURI(uriStr); } catch {/* ignore */}
-              raw = raw.replace(/^file:\/+/, '');
-              if (/^\/[A-Za-z]:\//.test(raw)) raw = raw.slice(1);
-              const norm = normalize(raw);
-              for (const v of [norm, withLeadingSlash(norm)]) { const id = idByCase.get(caseKey(v)); if (id!=null){ srcFileId = id; break; } }
-            }
-          } catch {/* ignore */}
-          if (srcFileId==null) {
-            if ((process.env.CRV_DEBUG||'').includes('calls')) {
-              try { console.error('[calls] unmatched incoming uri', JSON.stringify(ep.uri)); } catch {}
-            }
-            continue;
-          }
-          const sel = ep.selectionRange.start;
-          let fromSym = findSymbol(srcFileId, sel);
-          if (!fromSym){
-            const synth: Symbol = { name: '(anon)', kind:12, range:{ start:{...sel}, end:{...sel} }, children:[] } as any;
-            const pf = fileObjs.find(f=> f.id===srcFileId); if (pf){ pf.symbols.push(synth); flatByFile.get(srcFileId)?.push(synth); }
-            fromSym = synth;
-          }
-          const edgeKey = `${srcFileId}:${fromSym.range.start.line}_${fromSym.range.start.character}->${fileId}:${sym.range.start.line}_${sym.range.start.character}`;
-          if (!dedup.has(edgeKey)){
-            dedup.add(edgeKey);
-            relations.push({ from:{ fileId:srcFileId, line:fromSym.range.start.line, character:fromSym.range.start.character }, to:{ fileId, line:sym.range.start.line, character:sym.range.start.character }, kind:RelationKind.Call, _depth:depth });
-            if (depth>maxDepthSeen) maxDepthSeen = depth;
-          }
-          await traverseFunc(srcFileId, fromSym, depth+1);
-          if (relations.length >= REL_CAP) return;
+            const uriObj = (loc.uri) ? loc : (loc.targetUri ? loc : undefined);
+            let uri = '';
+            let selRange:any;
+            if (uriObj && 'uri' in uriObj) { uri = uriObj.uri; selRange = uriObj.range || uriObj.selectionRange; }
+            else if ('targetUri' in loc) { uri = loc.targetUri; selRange = loc.targetSelectionRange || loc.targetRange; }
+            if (!uri || !selRange?.start) continue;
+            const { fileId, targetSym, pos } = mapEndpoint(selRange.start, uri);
+            if (fileId==null) continue;
+            const toLine = targetSym? targetSym.range.start.line : pos.line;
+            const toChar = targetSym? targetSym.range.start.character : pos.character;
+            const key = `${f.id}:${sym.range.start.line}_${sym.range.start.character}->${fileId}:${toLine}_${toChar}:impl`;
+            if (dedup.has(key)) continue; dedup.add(key);
+            relations.push({ from:{ fileId:f.id, line:sym.range.start.line, character:sym.range.start.character }, to:{ fileId, line:toLine, character:toChar }, kind:RelationKind.Impl, _depth:0 });
+          } catch {/* ignore single impl error */}
         }
-        // Supplement with outgoing calls if we still have only intra-file edges for this symbol (attempt to capture cross-file)
-        if (relations.filter(r=> r.to.fileId!==r.from.fileId).length===0) {
-          try {
-            const outgoing = await client.outgoingCalls(item) || [];
-            for (const oc of outgoing){
-              const ep = oc.to; if (!ep?.uri || !ep.selectionRange?.start) continue;
-              let dstFileId: number | undefined;
-              try {
-                let uriStr: string;
-                if (typeof ep.uri === 'string') uriStr = ep.uri; else if (ep.uri?.path) uriStr = ep.uri.path; else uriStr = String(ep.uri);
-                if (/^file:\/\//i.test(uriStr)) {
-                  const parsed = URI.parse(uriStr);
-                  const fsPath = parsed.fsPath; const norm = normalize(fsPath);
-                  for (const v of [norm, withLeadingSlash(norm), norm[0]?.toUpperCase()+norm.slice(1)]) { const id = idByCase.get(caseKey(v)); if (id!=null){ dstFileId = id; break; } }
-                } else {
-                  let raw = uriStr; try { raw = decodeURI(uriStr); } catch {}
-                  raw = raw.replace(/^file:\/+/, ''); if (/^\/[A-Za-z]:\//.test(raw)) raw = raw.slice(1);
-                  const norm = normalize(raw);
-                  for (const v of [norm, withLeadingSlash(norm), norm[0]?.toUpperCase()+norm.slice(1)]) { const id = idByCase.get(caseKey(v)); if (id!=null){ dstFileId = id; break; } }
-                }
-              } catch {}
-              if (dstFileId==null) continue;
-              const sel = ep.selectionRange.start;
-              const fromKey = `${fileId}:${sym.range.start.line}_${sym.range.start.character}`;
-              const edgeKey = `${fromKey}->${dstFileId}:${sel.line}_${sel.character}`;
-              if (!dedup.has(edgeKey)) {
-                dedup.add(edgeKey);
-                relations.push({ from:{ fileId, line:sym.range.start.line, character:sym.range.start.character }, to:{ fileId:dstFileId, line:sel.line, character:sel.character }, kind:RelationKind.Call, _depth:depth });
-              }
-            }
-          } catch {/* ignore */}
-        }
+      }
       }
     }
     if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] call relations=${callCount} impl relations=${relations.length-callCount} total=${relations.length}`);
   if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym:stats] callable=${callableTotal} prepareTotal=${prepareTotal} prepareWithItems=${prepareWithItems} prepareEmpty=${prepareEmpty}`);
   }
-  // Naive Python fallback (augment even if we already have some relations) to approximate cross-file calls when LSP omits them
-  if (!opts.skipCalls && fileObjs.some(f=> /\.py$/i.test(f.path))) {
-      try {
-        const pyFiles = fileObjs.filter(f=> /\.py$/i.test(f.path));
-        const fs = await import('node:fs/promises');
-        // Map function name -> array of symbols (could be duplicates per file / scope)
-        interface FuncInfo { file:File; sym:Symbol; start:number; end:number; }
-        const funcs: FuncInfo[] = [];
-        for (const f of pyFiles){
-          const text = await fs.readFile(f.path,'utf8').catch(()=> '');
-          const lines = text.split(/\r?\n/);
-          // determine end line by next symbol start
-          const funcSyms = [...iterateSymbols(f.symbols)].filter(s=> isCallLike(s.kind));
-          funcSyms.sort((a,b)=> a.range.start.line - b.range.start.line);
-          for (let i=0;i<funcSyms.length;i++){
-            const s = funcSyms[i];
-            const start = s.range.start.line;
-            const end = i+1<funcSyms.length ? funcSyms[i+1].range.start.line-1 : lines.length-1;
-            funcs.push({ file:f, sym:s, start, end });
-          }
-        }
-        const byName = new Map<string, FuncInfo[]>();
-        for (const fi of funcs){
-          const key = fi.sym.name;
-          if (!byName.has(key)) byName.set(key, []);
-          byName.get(key)!.push(fi);
-        }
-        // Simple regex per function body to find calls to known names
-        for (const fi of funcs){
-          const text = await fs.readFile(fi.file.path,'utf8').catch(()=> '');
-          const lines = text.split(/\r?\n/).slice(fi.start, fi.end+1);
-          const body = lines.join('\n');
-          for (const [name, targets] of byName){
-            if (name===fi.sym.name) continue; // skip self
-            const callRe = new RegExp(`\\b${name}\\s*\\(`, 'g');
-            if (callRe.test(body)){
-              for (const tgt of targets){
-                relations.push({
-                  from:{ fileId:fi.file.id, line:fi.sym.range.start.line, character:fi.sym.range.start.character },
-                  to:{ fileId:tgt.file.id, line:tgt.sym.range.start.line, character:tgt.sym.range.start.character },
-                  kind: RelationKind.Call
-                });
-              }
-            }
-          }
-        }
-  if (!process.env.CRV_QUIET) console.error(`[sym] python-fallback augment totalRelations=${relations.length}`);
-      } catch (e){ if ((process.env.CRV_DEBUG||'').includes('sym')) console.error('[sym] python-fallback error', e); }
-    }
   // Optionally trim the deepest recorded depth (drop relations only at deepest level)
   let finalRelations: Relation[] = relations as Relation[];
   if (opts.trimLastDepth && maxDepthSeen>0) {
     finalRelations = relations.filter(r=> (r as any)._depth !== maxDepthSeen);
     if ((process.env.CRV_DEBUG||'').includes('sym')) console.error(`[sym] trimLastDepth applied: maxDepthSeen=${maxDepthSeen} kept=${finalRelations.length}/${relations.length}`);
   }
-  // Build flattened symbol lists per file for tolerant lookup (exact start OR containment)
-  interface FlatSym { sym:Symbol; startLine:number; startChar:number; endLine:number; endChar:number; }
-  const flatByFile = new Map<number, FlatSym[]>();
-  for (const f of fileObjs) {
-    const arr: FlatSym[] = [];
-    for (const s of iterateSymbols(f.symbols)) {
-      const rs = s.range.start; const re = (s.range.end||s.range.start);
-      arr.push({ sym:s, startLine:rs.line, startChar:rs.character, endLine:re.line, endChar:re.character });
-    }
-    flatByFile.set(f.id, arr);
-  }
-  function isBefore(aL:number,aC:number,bL:number,bC:number){ return aL<bL || (aL===bL && aC<=bC); }
-  function contains(fs:FlatSym, line:number, ch:number){
-    // Inclusive start, inclusive end (best-effort); Python defs usually have start char=0.
-    if (!isBefore(fs.startLine, fs.startChar, line, ch)) return false;
-    if (!isBefore(line, ch, fs.endLine, fs.endChar)) return false;
-    return true;
-  }
-  function resolveFunc(fileId:number, line:number, ch:number): Symbol|undefined {
-    const list = flatByFile.get(fileId); if (!list) return undefined;
-    // 1. Exact start match first
-    let exact = list.find(l=> l.startLine===line && l.startChar===ch && isCallLike(l.sym.kind));
-    if (exact) return exact.sym;
-    // 2. Containment: smallest containing call-like symbol
-    let best: FlatSym|undefined;
-    for (const fs of list) {
-      if (!isCallLike(fs.sym.kind)) continue;
-      if (contains(fs,line,ch)) {
-        if (!best) best = fs; else {
-          // Prefer tighter (range shorter)
-            const bestSpan = (best.endLine-best.startLine)*10000 + (best.endChar-best.startChar);
-            const curSpan = (fs.endLine-fs.startLine)*10000 + (fs.endChar-fs.startChar);
-            if (curSpan < bestSpan) best = fs;
-        }
-      }
-    }
-    return best?.sym;
-  }
-  const kept: Relation[] = [];
-  for (const r of finalRelations) {
-    const fromSym = resolveFunc(r.from.fileId, r.from.line, r.from.character);
-    const toSym   = resolveFunc(r.to.fileId, r.to.line, r.to.character);
-    if (fromSym && toSym) kept.push(r);
-  }
-  if ((process.env.CRV_DEBUG||'').includes('sym')) {
-    const cross = kept.filter(r=> r.from.fileId!==r.to.fileId).length;
-    console.error(`[sym] filtered relations kept=${kept.length} crossFile=${cross}`);
-  }
-  return { files: fileObjs, relations: kept };
+  return { files: fileObjs, relations: finalRelations };
 }
 
 function addCallRelation(endpoint:any, file:File, sym:Symbol, idBy:Map<string,number>, out:Relation[], incoming:boolean){
@@ -459,32 +335,12 @@ export function symbolGraphToDot(graph:Graph, _root:string, collapse:boolean, sy
   out.push('fontsize=16; fontname="Arial";');
   out.push('node [fontsize=16 fontname="Arial" shape=plaintext style=filled];');
   out.push('edge [arrowsize=1.5 label=" "];');
-  out.push('splines=true;');
   if (sub) emitSubgraphDOT(sub, out, { v:0 }); else nodes.forEach(n=> out.push(`${n.id} [id="${n.id}" label=<${n.labelHtml}> shape=plaintext style=filled]`));
   for (const e of edges){
-    // Ensure edge id matches webview pattern: fromCell-toCell when ports present
-    let edgeId = e.id;
-    if (e.tailport && e.headport) edgeId = `${e.tail}:${e.tailport}-${e.head}:${e.headport}`;
-    const attrs = [`id="${edgeId}"`];
+    const attrs = [`id="${e.id}"`];
+    if (e.tailport) attrs.push(`tailport="${e.tailport}"`);
+    if (e.headport) attrs.push(`headport="${e.headport}"`);
     if (e.class) attrs.push(`class="${e.class}"`);
-    const sameNode = e.tail === e.head && e.tailport && e.headport && (!e.class || e.class!=='impl');
-    if (e.tailport || e.headport) {
-      if (isTB) {
-        if (sameNode) {
-          if (e.tailport) attrs.push(`tailport="${e.tailport}:e"`);
-          if (e.headport) attrs.push(`headport="${e.headport}:e"`);
-          attrs.push('constraint=false');
-          attrs.push('minlen=1');
-          if (!e.class) attrs.push('class="intra"');
-        } else {
-          if (e.tailport) attrs.push(`tailport="${e.tailport}:e"`);
-          if (e.headport) attrs.push(`headport="${e.headport}:w"`);
-        }
-      } else {
-        if (e.tailport) attrs.push(`tailport="${e.tailport}"`);
-        if (e.headport) attrs.push(`headport="${e.headport}"`);
-      }
-    }
     out.push(`${e.tail} -> ${e.head} [${attrs.join(' ')} label=" "];`);
   }
   out.push('}');
@@ -710,21 +566,74 @@ export async function renderSymbolGraph(graph:Graph, root:string, collapse:boole
     }
   }
   const viz = await vizInstance();
+  const dot = symbolGraphToDot(graph, root, collapse, symbolDepth);
+  let svg: any;
   try {
-    const svgEl = viz.renderSVGElement(dot) as any;
-    // Need real DOM for transformation
-    if (!(globalThis as any).document?.createElementNS) {
-      try {
-        const { JSDOM } = require('jsdom');
-        const { window } = new JSDOM('<!doctype html><html><body></body></html>');
-        (globalThis as any).window = window;
-        (globalThis as any).document = window.document;
-      } catch {/* ignore */}
-    }
-    try { applyTransform(svgEl, null); } catch {/* ignore transform errors */}
-    return { outerHTML: svgEl.outerHTML || String(svgEl) } as any;
-  } catch {
-    const svgText = await (viz as any).renderString(dot, { format:'svg', engine:'dot' });
-    return { outerHTML: svgText } as any;
+    const svgText: string = await (viz as any).renderString(dot, { format:'svg', engine:'dot' });
+    const container = (globalThis as any).document.createElement('div');
+    container.innerHTML = svgText.replace(/<\?xml[^>]*>/,'');
+    svg = container.querySelector('svg');
+    if (!svg) throw new Error('No <svg> element produced');
+  } catch (e:any) {
+    console.error('[sym] renderString failed:', e?.message||e);
+    throw e;
   }
+  postProcess(svg as any);
+  return svg as any;
+}
+
+function postProcess(svg:SVGSVGElement){
+  // Responsive sizing: convert fixed pt width/height to scalable viewBox
+  const rawW = svg.getAttribute('width');
+  const rawH = svg.getAttribute('height');
+  const num = (v:string|null)=> v && /[0-9.]/.test(v) ? parseFloat(v) : undefined;
+  const w = num(rawW||'');
+  const h = num(rawH||'');
+  if (w && h) {
+    if (!svg.getAttribute('viewBox')) svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+    if (!svg.getAttribute('style')) svg.setAttribute('style','width:100%;height:100vh;');
+  }
+  svg.classList.add('callgraph');
+  svg.querySelectorAll('title').forEach(t=> t.remove());
+  // Flatten anchors; classify title vs cell like UI's render.ts
+  svg.querySelectorAll('g[id^="a_"]').forEach(g=> {
+    const anchor = g.querySelector('a'); if(!anchor) return;
+    const href = anchor.getAttribute('xlink:href')||anchor.getAttribute('href')||'';
+    while(anchor.firstChild) g.insertBefore(anchor.firstChild, anchor);
+    anchor.remove();
+    g.id = g.id.replace(/^a_/,'');
+    const kindNum = parseInt(href);
+    if (isNaN(kindNum)) { g.classList.add('title'); g.closest('.node')?.setAttribute('data-path', href); }
+    else { g.setAttribute('data-kind', href); g.classList.add('cell'); classifyKind(g, kindNum); }
+  });
+  svg.querySelectorAll('g.node polygon').forEach(poly=> { const p=poly as unknown as SVGPolygonElement; p.parentNode!.replaceChild(polygon2rect(p), p); });
+  svg.querySelectorAll('g.cluster > polygon:not(:first-of-type)').forEach(poly=> { const p=poly as unknown as SVGPolygonElement; const r=polygon2rect(p); r.classList.add('cluster-label'); p.parentNode!.replaceChild(r,p); });
+  svg.querySelectorAll('g.edge').forEach(edge=> { const id=edge.getAttribute('id')||''; const parts=id.split('-'); if(parts.length===2){ edge.setAttribute('data-from', parts[0]); edge.setAttribute('data-to', parts[1]); }
+    edge.querySelectorAll('path').forEach(path=> { const np=path.cloneNode() as SVGElement; np.classList.add('hover-path'); np.removeAttribute('stroke-dasharray'); path.parentNode!.appendChild(np); }); });
+  const faded = svg.ownerDocument!.createElementNS('http://www.w3.org/2000/svg','g'); faded.id='faded-group'; svg.getElementById('graph0')?.appendChild(faded);
+  const defs = svg.ownerDocument!.createElementNS('http://www.w3.org/2000/svg','defs'); defs.innerHTML='<filter id="shadow"><feDropShadow dx="0" dy="0" stdDeviation="4" flood-opacity="0.5"></filter><linearGradient id="highlightGradient"><stop offset="0%" stop-color="var(--edge-incoming-color)"/><stop offset="100%" stop-color="var(--edge-outgoing-color)"/></linearGradient>'; svg.appendChild(defs);
+}
+function classifyKind(g:Element, k:number){ switch(k){ case 2: g.classList.add('module'); break; case 12: g.classList.add('function'); break; case 6: g.classList.add('method'); break; case 9: g.classList.add('constructor'); break; case 11: g.classList.add('interface'); break; case 8: g.classList.add('field'); break; case 7: g.classList.add('property'); break; case 5: g.classList.add('class'); break; case 10: g.classList.add('enum'); break; /* struct custom? */ default: break; } }
+function polygon2rect(pg:SVGPolygonElement): SVGRectElement {
+  const r = pg.ownerDocument!.createElementNS('http://www.w3.org/2000/svg','rect');
+  try {
+    // jsdom does not populate polygon.points; parse the attribute instead.
+    const attr = pg.getAttribute('points') || '';
+    const coords = attr.trim().split(/\s+/).map(pair=> pair.split(',').map(Number)).filter(a=> a.length===2 && !isNaN(a[0]) && !isNaN(a[1]));
+    if (coords.length >= 2) {
+      let minx=coords[0][0], maxx=coords[0][0], miny=coords[0][1], maxy=coords[0][1];
+      for (const [x,y] of coords) { if (x<minx) minx=x; if (x>maxx) maxx=x; if (y<miny) miny=y; if (y>maxy) maxy=y; }
+      r.setAttribute('x', String(minx));
+      r.setAttribute('y', String(miny));
+      r.setAttribute('width', String(maxx-minx));
+      r.setAttribute('height', String(maxy-miny));
+    } else {
+      r.setAttribute('x','0'); r.setAttribute('y','0'); r.setAttribute('width','0'); r.setAttribute('height','0');
+    }
+  } catch {
+    r.setAttribute('x','0'); r.setAttribute('y','0'); r.setAttribute('width','0'); r.setAttribute('height','0');
+  }
+  return r;
 }
