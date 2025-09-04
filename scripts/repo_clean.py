@@ -21,7 +21,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 TRANSIENT_FILES_PATTERNS = [
-    'out*.json','err*.txt','pyscan_*.json','pyscan_*.txt','*_graph.html','*_graph.dot'
+    'out*.json','err*.txt','pyscan_*.json','pyscan_*.txt','*_graph.html','*_graph.dot',
+    '.py_scan_cache.json'  # hidden python analyzer cache
 ]
 TRANSIENT_EXT = {'.dot','.log','.json'}
 TRANSIENT_PREFIXES = [

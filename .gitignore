@@ -37,6 +37,7 @@ packages/cli/pyscan_*.json
 packages/cli/pyscan_*.txt
 packages/cli/*_graph.html
 packages/cli/*_graph.dot
+packages/cli/.py_scan_cache.json
 
 # Environment files
 .env
