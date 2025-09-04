@@ -30,6 +30,14 @@ logs/
 tmp/
 temp/
 
+# Additional transient analyzer artifacts (CLI package)
+packages/cli/out*.json
+packages/cli/err*.txt
+packages/cli/pyscan_*.json
+packages/cli/pyscan_*.txt
+packages/cli/*_graph.html
+packages/cli/*_graph.dot
+
 # Environment files
 .env
 .env.*
